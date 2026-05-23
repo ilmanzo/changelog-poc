@@ -1,0 +1,83 @@
+[project]
+name = "rpm-mcp"
+version = "0.1.0"
+description = "Unified MCP server for openSUSE/Fedora RPM changelogs, specs, CVEs, news, and openQA mappings. Backed by PostgreSQL + pgvector."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.13.5",
+    "async-lru>=2.3.0",
+    "asyncpg>=0.30.0",
+    "dateparser>=1.2.0",
+    "fastembed>=0.8.0",
+    "gitpython>=3.1.49",
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.27.1",
+    "packaging>=26.2",
+    "pgvector>=0.4.1",
+    "pydantic-settings>=2.14.0",
+    "specfile>=0.40.2",
+    "structlog>=25.5.0",
+    "tenacity>=9.1.4",
+]
+
+[dependency-groups]
+dev = [
+    "aioresponses>=0.7.8",
+    "mypy>=1.20.2",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "testcontainers[postgres]>=4.14.2",
+]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src", "mcp_server.py"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_calls = false
+disallow_any_generics = false
+strict_equality = false
+
+[[tool.mypy.overrides]]
+module = [
+    "asyncpg.*",
+    "fastembed.*",
+    "mcp.*",
+    "aioresponses.*",
+    "async_lru.*",
+    "tenacity.*",
+    "dateparser.*",
+    "specfile.*",
+    "pgvector.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "e2e: integration tests requiring a container engine (docker/podman socket)",
+    "llm: tests requiring LLM proxy at localhost:11438",
+    "network: tests that fetch from OBS, Pagure, or RSS feeds",
+]
+addopts = "-m 'not e2e'"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/__init__.py", "src/sources/__init__.py"]
+concurrency = ["thread"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
