@@ -1,10 +1,16 @@
 """FastMCP entrypoint for rpm-mcp.
 
-Phase 1: changelog tools (parity with changelog-poc) wired to Postgres+pgvector.
+All MCP tool functions live here. Each tool is wrapped by ``_tool_wrapper``,
+which standardises timing + structured logging + exception → user-facing error
+string. Inside a tool body, call ``_tlog(field=value)`` to attach extra fields
+to the wrapper's terminal ``tool_done`` / ``tool_error`` log record.
 """
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
+import inspect
 import logging
 import os
 import re
@@ -12,7 +18,7 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, TypeAlias
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -28,7 +34,7 @@ from src.logging_config import configure_logging
 from src.models import ChangelogEntry
 from src.modernize import check_modernization
 from src.news_fetcher import fetch_all_news
-from src.openqa_fetcher import scan_tests
+from src.openqa_fetcher import scan_tests  # noqa: F401  (re-exported for worker use)
 from src.rpm_manager import RPMManager
 from src.sources import (
     FetchStrategy,
@@ -47,7 +53,8 @@ configure_logging(
 )
 _logger = structlog.get_logger("rpm-mcp.server")
 
-# Matches CVE/BSC IDs embedded anywhere in changelog text (not anchored, unlike CVE_RE/BSC_RE).
+# Why: _CVE_CONTENT_RE / _BSC_CONTENT_RE scan freely inside changelog bodies,
+# unlike CVE_RE / BSC_RE which anchor a full ID string for input validation.
 _CVE_CONTENT_RE = re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)
 _BSC_CONTENT_RE = re.compile(r"\b(?:bsc|boo|bnc)#\d+\b", re.IGNORECASE)
 
@@ -79,8 +86,93 @@ mcp = FastMCP("rpm-mcp", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
-# helpers
+# User-facing message templates
 # ---------------------------------------------------------------------------
+MSG_PKG_NOT_FOUND = "Package '{}' not found in any source (local RPM, OBS, src.opensuse.org)."
+MSG_PKG_NOT_FOUND_SHORT = "Package '{}' not found in any source."
+MSG_INVALID_CVE = "Invalid CVE ID '{}'. Expected CVE-YYYY-NNNN(NNN)."
+MSG_INVALID_BUG = "Invalid bug ID '{}'. Expected bsc#NNNNNN, boo#NNNNNN, or bnc#NNNNNN."
+MSG_SINCE_UNPARSEABLE = "Could not parse 'since' value: {!r}."
+MSG_UNTIL_UNPARSEABLE = "Could not parse 'until' value: {!r}."
+MSG_UNKNOWN_SPEC_SOURCE = "Unknown source {!r}. Use 'opensuse' or 'fedora'."
+
+ReleaseGroup: TypeAlias = tuple[str, datetime, list[ChangelogEntry]]
+SqlRow: TypeAlias = Mapping[str, Any]
+
+
+# ---------------------------------------------------------------------------
+# Tool wrapper: timing + logging + exception → user-facing string
+# ---------------------------------------------------------------------------
+_log_extras: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
+    "_log_extras", default={}
+)
+
+
+def _tlog(**fields: Any) -> None:
+    """Add structured fields to the wrapping tool's terminal log record."""
+    _log_extras.set({**_log_extras.get(), **fields})
+
+
+def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]]:
+    """Wrap a tool body with timing, structured logging, and uniform error formatting."""
+    def decorator(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
+        sig = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> str:
+            token = _log_extras.set({})
+            t0 = time.perf_counter()
+            bound: Mapping[str, Any]
+            try:
+                bound = sig.bind(*args, **kwargs).arguments
+            except TypeError:
+                bound = kwargs
+            log = _logger.bind(
+                tool=tool_name,
+                **{k: v for k, v in bound.items() if isinstance(v, (str, int, bool))},
+            )
+            try:
+                result = await fn(*args, **kwargs)
+                log.info(
+                    "tool_done",
+                    elapsed_s=round(time.perf_counter() - t0, 3),
+                    **_log_extras.get(),
+                )
+                return result
+            except Exception as e:
+                log.exception(
+                    "tool_error",
+                    elapsed_s=round(time.perf_counter() - t0, 3),
+                    **_log_extras.get(),
+                )
+                return f"Error in {tool_name} for {bound.get('package', '?')}: {e}"
+            finally:
+                _log_extras.reset(token)
+
+        return wrapper
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+def _format_date(dt: datetime | None) -> str:
+    return dt.date().isoformat() if dt else "?"
+
+
+def _validate_cve_id(cve_id: str) -> str:
+    if not CVE_RE.match(cve_id):
+        raise ValueError(MSG_INVALID_CVE.format(cve_id))
+    return cve_id.upper()
+
+
+def _validate_bug_id(bug_id: str) -> str:
+    if not BSC_RE.match(bug_id):
+        raise ValueError(MSG_INVALID_BUG.format(bug_id))
+    return bug_id.lower()
+
+
 async def _ensure_fresh(package: str, refresh: bool = False) -> bool:
     """True if cache fresh OR a triggered ingest succeeded."""
     pkg_id = await db.get_package_id(package)
@@ -90,7 +182,7 @@ async def _ensure_fresh(package: str, refresh: bool = False) -> bool:
     return res.status is IngestStatus.INDEXED
 
 
-def _records_to_entries(rows: list) -> list[ChangelogEntry]:
+def _records_to_entries(rows: list[SqlRow]) -> list[ChangelogEntry]:
     return [
         ChangelogEntry(
             version=r["version"],
@@ -110,10 +202,46 @@ async def _load_entries(package: str) -> list[ChangelogEntry]:
     return _records_to_entries(rows)
 
 
+async def _ensure_and_load_entries(
+    package: str, refresh: bool = False
+) -> list[ChangelogEntry] | None:
+    """Returns entries or None if ingest failed / package has no entries."""
+    if not await _ensure_fresh(package, refresh):
+        return None
+    entries = await _load_entries(package)
+    return entries or None
+
+
+def _format_match_rows(rows: list[SqlRow], header: str) -> str:
+    """Format find_cve / find_bug rows: package version (date) + content body."""
+    lines = [header]
+    for r in rows:
+        lines.append(
+            f"\n--- {r['package']} {r['version']} "
+            f"({_format_date(r['entry_date'])}) ---\n{r['content']}"
+        )
+    return "\n".join(lines)
+
+
+def _format_listing_rows(
+    rows: list[SqlRow], header: str, pattern: re.Pattern[str]
+) -> str:
+    """Format list_cves / list_bugs rows: version (date) — extracted IDs + 400-char preview."""
+    lines = [header]
+    for r in rows:
+        ids = ", ".join(sorted(set(pattern.findall(r["content"]))))
+        lines.append(
+            f"\n--- {r['version']} ({_format_date(r['entry_date'])}) — {ids} ---\n"
+            f"{r['content'].strip()[:400]}"
+        )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # changelog tools
 # ---------------------------------------------------------------------------
 @mcp.tool()
+@_tool_wrapper("analyze_package_diff")
 async def analyze_package_diff(
     package: str,
     version_start: str,
@@ -127,102 +255,102 @@ async def analyze_package_diff(
     ``deep=True`` shallow-clones upstream and adds `git log v_start..v_end`.
     ``refresh=True`` forces re-ingest.
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="analyze_package_diff", package=package,
-                       version_start=version_start, version_end=version_end, refresh=refresh)
+    validate_package_name(package)
+    entries = await _ensure_and_load_entries(package, refresh)
+    if entries is None:
+        return MSG_PKG_NOT_FOUND.format(package)
+
+    relevant, strategy = _filter_entries_by_version(entries, version_start, version_end)
+    _tlog(filter_strategy=strategy, result_entries=len(relevant), total=len(entries))
+
+    if not relevant:
+        return (
+            f"No changelog entries found for '{package}' between versions "
+            f"{version_start} and {version_end}. "
+            f"Package exists but the version range may be incorrect or too narrow. "
+            f"Available entries span {len(entries)} versions."
+        )
+
+    git_logs = ""
+    if deep:
+        git_logs = await _fetch_git_logs(package, version_start, version_end, relevant)
+
+    lines = [
+        f"Package: {package} Diff ({version_start} -> {version_end})",
+        "\nCHANGELOG ENTRIES:",
+    ]
+    for e in relevant:
+        lines.append(f"--- {_format_date(e.date)} ({e.version}) ---\n{e.content}")
+    if git_logs:
+        lines.append("\nUPSTREAM GIT COMMITS:")
+        lines.append(git_logs)
+    return "\n".join(lines)
+
+
+def _filter_entries_by_version(
+    entries: list[ChangelogEntry], version_start: str, version_end: str
+) -> tuple[list[ChangelogEntry], str]:
+    """Apply semver → fuzzy → version-string fallback. Returns (matches, strategy_name)."""
     try:
-        validate_package_name(package)
-        if not await _ensure_fresh(package, refresh):
-            return f"Package '{package}' not found in any source (local RPM, OBS, src.opensuse.org)."
-
-        entries = await _load_entries(package)
-        if not entries:
-            return f"Package '{package}' not found in any source (local RPM, OBS, src.opensuse.org)."
-
+        v_start = pkg_version.parse(clean_version(version_start) or "0")
+        v_end = pkg_version.parse(clean_version(version_end) or "9999")
         relevant: list[ChangelogEntry] = []
-        strategy = "none"
-        try:
-            v_start = pkg_version.parse(clean_version(version_start) or "0")
-            v_end = pkg_version.parse(clean_version(version_end) or "9999")
-            for e in entries:
-                cv = clean_version(e.version)
-                if not cv or cv == "unknown":
-                    if content_matches(e, version_start, version_end):
-                        relevant.append(e)
-                    continue
-                try:
-                    if v_start <= pkg_version.parse(cv) <= v_end:
-                        relevant.append(e)
-                except (pkg_version.InvalidVersion, ValueError):
-                    if content_matches(e, version_start, version_end):
-                        relevant.append(e)
-            if relevant:
-                strategy = "semver"
-        except Exception as ve:
-            log.warning("version_filter_failed", error=str(ve))
-            relevant = [e for e in entries if content_matches(e, version_start, version_end)]
-            if relevant:
-                strategy = "fuzzy_fallback"
+        for e in entries:
+            cv = clean_version(e.version)
+            if not cv or cv == "unknown":
+                if content_matches(e, version_start, version_end):
+                    relevant.append(e)
+                continue
+            try:
+                if v_start <= pkg_version.parse(cv) <= v_end:
+                    relevant.append(e)
+            except (pkg_version.InvalidVersion, ValueError):
+                if content_matches(e, version_start, version_end):
+                    relevant.append(e)
+        if relevant:
+            return relevant, "semver"
+    except Exception:
+        relevant = [e for e in entries if content_matches(e, version_start, version_end)]
+        if relevant:
+            return relevant, "fuzzy_fallback"
 
-        if not relevant:
-            relevant = [e for e in entries
-                        if version_end in str(e.version) or content_matches(e, version_end)]
-            if relevant:
-                strategy = "version_string_match"
+    # Last-ditch: substring match on version_end
+    fallback = [
+        e for e in entries
+        if version_end in str(e.version) or content_matches(e, version_end)
+    ]
+    return (fallback, "version_string_match" if fallback else "none")
 
-        if not relevant:
-            log.warning("version_range_not_found", total=len(entries),
-                        elapsed_s=round(time.perf_counter() - t0, 3))
-            return (
-                f"No changelog entries found for '{package}' between versions "
-                f"{version_start} and {version_end}. "
-                f"Package exists but the version range may be incorrect or too narrow. "
-                f"Available entries span {len(entries)} versions."
-            )
 
-        git_logs = ""
-        if deep:
-            upstream = await db.get_upstream_url(package)
-            if upstream:
-                repo_path = await git_mgr.ensure_repo(upstream, package)
-                tag_a, tag_b = await asyncio.gather(
-                    git_mgr.find_tag(repo_path, version_start),
-                    git_mgr.find_tag(repo_path, version_end),
-                )
-                if tag_a and tag_b:
-                    git_logs = await git_mgr.get_logs_between_tags(repo_path, tag_a, tag_b)
-                else:
-                    start_date = relevant[-1].date
-                    end_date = relevant[0].date
-                    if start_date and end_date:
-                        git_logs = await git_mgr.get_logs_between_timestamps(
-                            repo_path, start_date, end_date
-                        )
-
-        lines = [f"Package: {package} Diff ({version_start} -> {version_end})",
-                 "\nCHANGELOG ENTRIES:"]
-        for e in relevant:
-            lines.append(f"--- {e.date.date()} ({e.version}) ---\n{e.content}")
-        if git_logs:
-            lines.append("\nUPSTREAM GIT COMMITS:")
-            lines.append(git_logs)
-
-        log.info("tool_done", filter_strategy=strategy, result_entries=len(relevant),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error analyzing {package}: {e}"
+async def _fetch_git_logs(
+    package: str,
+    version_start: str,
+    version_end: str,
+    relevant: list[ChangelogEntry],
+) -> str:
+    upstream = await db.get_upstream_url(package)
+    if not upstream:
+        return ""
+    repo_path = await git_mgr.ensure_repo(upstream, package)
+    tag_a, tag_b = await asyncio.gather(
+        git_mgr.find_tag(repo_path, version_start),
+        git_mgr.find_tag(repo_path, version_end),
+    )
+    if tag_a and tag_b:
+        return await git_mgr.get_logs_between_tags(repo_path, tag_a, tag_b)
+    start_date = relevant[-1].date
+    end_date = relevant[0].date
+    if start_date and end_date:
+        return await git_mgr.get_logs_between_timestamps(repo_path, start_date, end_date)
+    return ""
 
 
 async def _fetch_recent_releases(
     package: str, n: int, refresh: bool
-) -> list[tuple[str, datetime, list[ChangelogEntry]]] | None:
+) -> list[ReleaseGroup] | None:
     n = max(1, min(n, 50))
-    if not await _ensure_fresh(package, refresh):
-        return None
-    entries = await _load_entries(package)
-    if not entries:
+    entries = await _ensure_and_load_entries(package, refresh)
+    if entries is None:
         return None
 
     groups: dict[str, list[ChangelogEntry]] = defaultdict(list)
@@ -242,229 +370,190 @@ async def _fetch_recent_releases(
 
 
 @mcp.tool()
+@_tool_wrapper("get_recent_releases")
 async def get_recent_releases(package: str, n: int = 3, refresh: bool = False) -> str:
     """Last *n* distinct releases of *package*, grouped by version."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_recent_releases", package=package, n=n, refresh=refresh)
-    try:
-        validate_package_name(package)
-        groups = await _fetch_recent_releases(package, n, refresh)
-        if groups is None:
-            return f"Package '{package}' not found in any source."
+    validate_package_name(package)
+    groups = await _fetch_recent_releases(package, n, refresh)
+    if groups is None:
+        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    _tlog(releases=len(groups))
 
-        lines = [f"Package: {package} — last {len(groups)} release(s)"]
-        for ver, newest_dt, items in groups:
-            lines.append(f"\n=== {ver} ({newest_dt.date()}) ===")
-            for e in items:
-                lines.append(f"--- {e.date.date()} ({e.author}) ---\n{e.content}")
-
-        log.info("tool_done", releases=len(groups),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching recent releases for {package}: {e}"
+    lines = [f"Package: {package} — last {len(groups)} release(s)"]
+    for ver, newest_dt, items in groups:
+        lines.append(f"\n=== {ver} ({_format_date(newest_dt)}) ===")
+        for e in items:
+            lines.append(f"--- {_format_date(e.date)} ({e.author}) ---\n{e.content}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("get_changes_in_range")
 async def get_changes_in_range(
     package: str, since: str, until: str | None = None, refresh: bool = False
 ) -> str:
     """Changelog entries within ``[since, until]`` (ISO 8601 or natural language)."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_changes_in_range", package=package, since=since,
-                       until=until, refresh=refresh)
-    try:
-        validate_package_name(package)
-        since_dt = parse_when(since)
-        if since_dt is None:
-            return f"Could not parse 'since' value: {since!r}."
-        until_dt = parse_when(until) if until else datetime.now(UTC)
-        if until_dt is None:
-            return f"Could not parse 'until' value: {until!r}."
-        if since_dt >= until_dt:
-            return (
-                f"Invalid range: 'since' ({since_dt.isoformat()}) is not before "
-                f"'until' ({until_dt.isoformat()})."
-            )
-
-        if not await _ensure_fresh(package, refresh):
-            return f"Package '{package}' not found in any source."
-
-        pkg_id = await db.get_package_id(package)
-        assert pkg_id is not None
-        rows = await db.fetch_entries_in_range(pkg_id, since_dt, until_dt)
-        entries = _records_to_entries(rows)
-
-        header = (
-            f"Package: {package} — changes between "
-            f"{since_dt.date()} and {until_dt.date()} ({len(entries)} entries)"
+    validate_package_name(package)
+    since_dt = parse_when(since)
+    if since_dt is None:
+        return MSG_SINCE_UNPARSEABLE.format(since)
+    until_dt = parse_when(until) if until else datetime.now(UTC)
+    if until_dt is None:
+        return MSG_UNTIL_UNPARSEABLE.format(until)
+    if since_dt >= until_dt:
+        return (
+            f"Invalid range: 'since' ({since_dt.isoformat()}) is not before "
+            f"'until' ({until_dt.isoformat()})."
         )
-        if not entries:
-            return header + "\n(no entries in this window)"
-        lines = [header]
-        for e in entries:
-            lines.append(f"\n--- {e.date.date()} ({e.version}, {e.author}) ---\n{e.content}")
-        log.info("tool_done", entries=len(entries),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching changes for {package}: {e}"
+
+    if not await _ensure_fresh(package, refresh):
+        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+
+    pkg_id = await db.get_package_id(package)
+    # Why: _ensure_fresh returned True, so the package row exists in `packages`.
+    assert pkg_id is not None
+    rows = await db.fetch_entries_in_range(pkg_id, since_dt, until_dt)
+    entries = _records_to_entries(rows)
+    _tlog(entries=len(entries))
+
+    header = (
+        f"Package: {package} — changes between "
+        f"{_format_date(since_dt)} and {_format_date(until_dt)} ({len(entries)} entries)"
+    )
+    if not entries:
+        return header + "\n(no entries in this window)"
+    lines = [header]
+    for e in entries:
+        lines.append(
+            f"\n--- {_format_date(e.date)} ({e.version}, {e.author}) ---\n{e.content}"
+        )
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("get_dependencies")
 async def get_dependencies(package: str) -> str:
     """Direct runtime deps of *package* from the local RPM database."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_dependencies", package=package)
+    validate_package_name(package)
     try:
-        validate_package_name(package)
         deps = await rpm_mgr.get_dependencies(package)
-        log.info("tool_done", count=len(deps),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        if not deps:
-            return f"No dependencies resolved for '{package}'."
-        return f"Dependencies of {package} ({len(deps)}):\n" + "\n".join(sorted(deps))
     except RuntimeError as e:
         return f"Package '{package}' not installed locally: {e}"
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching dependencies for {package}: {e}"
+    _tlog(count=len(deps))
+    if not deps:
+        return f"No dependencies resolved for '{package}'."
+    return f"Dependencies of {package} ({len(deps)}):\n" + "\n".join(sorted(deps))
 
 
 @mcp.tool()
+@_tool_wrapper("get_reverse_dependencies")
 async def get_reverse_dependencies(package: str) -> str:
     """Installed packages that depend on *package* (local RPM database)."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_reverse_dependencies", package=package)
+    validate_package_name(package)
     try:
-        validate_package_name(package)
         rdeps = await rpm_mgr.get_reverse_dependencies(package)
-        log.info("tool_done", count=len(rdeps),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        if not rdeps:
-            return f"No installed packages depend on '{package}'."
-        return f"Packages depending on {package} ({len(rdeps)}):\n" + "\n".join(sorted(rdeps))
     except RuntimeError as e:
         return f"Package '{package}' not installed locally: {e}"
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching reverse dependencies for {package}: {e}"
+    _tlog(count=len(rdeps))
+    if not rdeps:
+        return f"No installed packages depend on '{package}'."
+    return f"Packages depending on {package} ({len(rdeps)}):\n" + "\n".join(sorted(rdeps))
 
 
 @mcp.tool()
+@_tool_wrapper("find_cve")
 async def find_cve(cve_id: str, package: str | None = None) -> str:
     """Case-insensitive substring search for a CVE ID across cached changelogs."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="find_cve", cve_id=cve_id, package=package)
     try:
-        if not CVE_RE.match(cve_id):
-            return f"Invalid CVE ID '{cve_id}'. Expected CVE-YYYY-NNNN(NNN)."
-        cve_id = cve_id.upper()
-        if package:
-            validate_package_name(package)
-            if not await _ensure_fresh(package):
-                return f"Package '{package}' not found in any source."
+        cve_id = _validate_cve_id(cve_id)
+    except ValueError as e:
+        return str(e)
+    if package:
+        validate_package_name(package)
+        if not await _ensure_fresh(package):
+            return MSG_PKG_NOT_FOUND_SHORT.format(package)
 
-        matches = await db.find_cve(cve_id, package_name=package)
-        if not matches:
-            scope = f"package '{package}'" if package else "any cached package"
-            return f"No mentions of {cve_id} found in {scope}."
-
-        lines = [f"Found {len(matches)} entries mentioning {cve_id}:"]
-        for r in matches:
-            lines.append(
-                f"\n--- {r['package']} {r['version']} "
-                f"({r['entry_date'].date() if r['entry_date'] else '?'}) ---\n{r['content']}"
-            )
-        log.info("tool_done", matches=len(matches),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error searching for {cve_id}: {e}"
+    matches = await db.find_cve(cve_id, package_name=package)
+    _tlog(matches=len(matches))
+    if not matches:
+        scope = f"package '{package}'" if package else "any cached package"
+        return f"No mentions of {cve_id} found in {scope}."
+    return _format_match_rows(matches, f"Found {len(matches)} entries mentioning {cve_id}:")
 
 
 @mcp.tool()
+@_tool_wrapper("get_dependency_changes")
 async def get_dependency_changes(
     package: str, n: int = 3, depth: int = 1, refresh: bool = False
 ) -> str:
     """For each (transitive) dependency of *package*, return its last *n* releases."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_dependency_changes",
-                       package=package, n=n, depth=depth, refresh=refresh)
-    try:
-        validate_package_name(package)
-        depth = max(1, min(depth, 2))
-        n = max(1, min(n, 20))
+    validate_package_name(package)
+    depth = max(1, min(depth, 2))
+    n = max(1, min(n, 20))
 
-        visited: set[str] = {package}
-        deps: set[str] = set()
-        frontier: set[str] = {package}
-        for _ in range(depth):
-            new_frontier: set[str] = set()
-            for pkg in frontier:
-                try:
-                    pkg_deps = await rpm_mgr.get_dependencies(pkg)
-                except Exception as ex:
-                    log.warning("rpm_deps_failed", package=pkg, error=str(ex))
-                    continue
-                for d in pkg_deps:
-                    if d not in visited:
-                        new_frontier.add(d)
-                        visited.add(d)
-            deps.update(new_frontier)
-            frontier = new_frontier
-            if len(deps) >= settings.f4_max_packages:
-                break
+    deps_list = await _collect_transitive_deps(package, depth)
+    if not deps_list:
+        return f"No dependencies resolved for '{package}' (is it installed locally?)."
 
-        if not deps:
-            return f"No dependencies resolved for '{package}' (is it installed locally?)."
+    results = await asyncio.gather(
+        *(_fetch_recent_releases(d, n, refresh) for d in deps_list),
+        return_exceptions=True,
+    )
 
-        deps_list = sorted(deps)[: settings.f4_max_packages]
-        results = await asyncio.gather(
-            *(_fetch_recent_releases(d, n, refresh) for d in deps_list),
-            return_exceptions=True,
-        )
+    lines = [
+        f"Dependencies of {package} "
+        f"(depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
+    ]
+    ok = err = missing = 0
+    for dep, res in zip(deps_list, results):
+        if isinstance(res, BaseException):
+            err += 1
+            lines.append(f"\n## {dep}: error — {res}")
+            continue
+        if res is None:
+            missing += 1
+            lines.append(f"\n## {dep}: no changelog found in any source")
+            continue
+        ok += 1
+        lines.append(f"\n## {dep} — last {len(res)} release(s)")
+        for ver, newest_dt, items in res:
+            lines.append(f"  === {ver} ({_format_date(newest_dt)}) ===")
+            for e in items:
+                lines.append(f"  {e.content}")
+    _tlog(ok=ok, missing=missing, errors=err)
+    return "\n".join(lines)
 
-        lines = [
-            f"Dependencies of {package} "
-            f"(depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
-        ]
-        ok = err = missing = 0
-        for dep, res in zip(deps_list, results):
-            if isinstance(res, BaseException):
-                err += 1
-                lines.append(f"\n## {dep}: error — {res}")
+
+async def _collect_transitive_deps(root: str, depth: int) -> list[str]:
+    """BFS up to *depth* hops from *root*, capped by settings.f4_max_packages."""
+    visited: set[str] = {root}
+    deps: set[str] = set()
+    frontier: set[str] = {root}
+    for _ in range(depth):
+        new_frontier: set[str] = set()
+        for pkg in frontier:
+            try:
+                pkg_deps = await rpm_mgr.get_dependencies(pkg)
+            except Exception as ex:
+                _logger.warning("rpm_deps_failed", package=pkg, error=str(ex))
                 continue
-            if res is None:
-                missing += 1
-                lines.append(f"\n## {dep}: no changelog found in any source")
-                continue
-            ok += 1
-            lines.append(f"\n## {dep} — last {len(res)} release(s)")
-            for ver, newest_dt, items in res:
-                lines.append(f"  === {ver} ({newest_dt.date()}) ===")
-                for e in items:
-                    lines.append(f"  {e.content}")
-        log.info("tool_done", ok=ok, missing=missing, errors=err,
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching dependency changes for {package}: {e}"
+            for d in pkg_deps:
+                if d not in visited:
+                    new_frontier.add(d)
+                    visited.add(d)
+        deps.update(new_frontier)
+        frontier = new_frontier
+        if len(deps) >= settings.f4_max_packages:
+            break
+    return sorted(deps)[: settings.f4_max_packages]
 
 
 @mcp.tool()
+@_tool_wrapper("sync_package")
 async def sync_package(package: str) -> str:
     """Force-ingest *package* — fetch + embed + upsert. Thin wrapper over IngestService."""
-    log = _logger.bind(tool="sync_package", package=package)
-    try:
-        result = await ingest_service.ingest(package)
-    except Exception as e:
-        log.exception("tool_error")
-        return f"Sync failed for {package}: {e}"
+    result = await ingest_service.ingest(package)
+    _tlog(status=result.status.value, entries=result.entries)
     if result.status is IngestStatus.INDEXED:
         return f"Successfully indexed {result.entries} entries for {package} (source: {result.source})."
     if result.status is IngestStatus.EMPTY:
@@ -473,159 +562,122 @@ async def sync_package(package: str) -> str:
 
 
 @mcp.tool()
+@_tool_wrapper("semantic_search")
 async def semantic_search(query: str, limit: int = 5) -> str:
     """Natural-language search across indexed changelogs via pgvector cosine distance."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="semantic_search", query=query, limit=limit)
-    try:
-        emb = await embedder.embed_one(query)
-        if not emb:
-            return "Embedding failed — semantic search unavailable."
-        rows = await db.semantic_search(emb, limit=limit)
-        if not rows:
-            return "No relevant entries found."
-        lines = [f"Semantic search results for: '{query}'"]
-        for r in rows:
-            d = r["entry_date"].date() if r["entry_date"] else "?"
-            lines.append(f"\n--- {r['package']} ({r['version']}, {d}) ---")
-            lines.append(r["content"])
-        log.info("tool_done", results=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Search failed: {e}"
+    emb = await embedder.embed_one(query)
+    if not emb:
+        return "Embedding failed — semantic search unavailable."
+    rows = await db.semantic_search(emb, limit=limit)
+    _tlog(results=len(rows))
+    if not rows:
+        return "No relevant entries found."
+    lines = [f"Semantic search results for: '{query}'"]
+    for r in rows:
+        lines.append(
+            f"\n--- {r['package']} ({r['version']}, {_format_date(r['entry_date'])}) ---"
+        )
+        lines.append(r["content"])
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("fts_search")
 async def fts_search(query: str, limit: int = 10, since: str | None = None) -> str:
     """Keyword / full-text search via tsvector over changelog content.
 
     ``since`` accepts ISO 8601 or natural language (e.g. "2024-01-01", "1 year ago").
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="fts_search", query=query, limit=limit, since=since)
-    try:
-        since_dt = parse_when(since) if since else None
-        if since and since_dt is None:
-            return f"Could not parse 'since' value: {since!r}."
-        rows = await db.fts_search(query, limit=limit, since=since_dt)
-        if not rows:
-            scope = f" since {since_dt.date()}" if since_dt else ""
-            return f"No FTS matches for: '{query}'{scope}."
-        lines = [f"FTS results for: '{query}'" + (f" (since {since_dt.date()})" if since_dt else "")]
-        for r in rows:
-            d = r["entry_date"].date() if r["entry_date"] else "?"
-            lines.append(f"\n--- {r['package']} ({r['version']}, {d}, rank={r['rank']:.3f}) ---")
-            lines.append(r["content"])
-        log.info("tool_done", results=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"FTS search failed: {e}"
+    since_dt = parse_when(since) if since else None
+    if since and since_dt is None:
+        return MSG_SINCE_UNPARSEABLE.format(since)
+    rows = await db.fts_search(query, limit=limit, since=since_dt)
+    _tlog(results=len(rows))
+    since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
+    if not rows:
+        return f"No FTS matches for: '{query}'{since_tag}."
+    lines = [f"FTS results for: '{query}'{since_tag}"]
+    for r in rows:
+        lines.append(
+            f"\n--- {r['package']} ({r['version']}, {_format_date(r['entry_date'])}, "
+            f"rank={r['rank']:.3f}) ---"
+        )
+        lines.append(r["content"])
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("list_cves")
 async def list_cves(package: str, since: str | None = None) -> str:
     """List all CVE IDs mentioned in *package*'s changelog, optionally filtered to entries
     from ``since`` onward (ISO 8601 or natural language, e.g. "2024-01-01", "1 year ago").
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="list_cves", package=package, since=since)
-    try:
-        validate_package_name(package)
-        since_dt = parse_when(since) if since else None
-        if since and since_dt is None:
-            return f"Could not parse 'since' value: {since!r}."
-        if not await _ensure_fresh(package):
-            return f"Package '{package}' not found in any source."
-        rows = await db.list_package_cves(package, since=since_dt)
-        if not rows:
-            scope = f" since {since_dt.date()}" if since_dt else ""
-            return f"No CVE mentions found in '{package}' changelog{scope}."
-        since_tag = f" (since {since_dt.date()})" if since_dt else ""
-        lines = [f"CVE entries for {package}{since_tag} — {len(rows)} matching changelog entries:"]
-        for r in rows:
-            d = r["entry_date"].date() if r["entry_date"] else "?"
-            cves = ", ".join(sorted(set(_CVE_CONTENT_RE.findall(r["content"]))))
-            lines.append(f"\n--- {r['version']} ({d}) — {cves} ---\n{r['content'].strip()[:400]}")
-        log.info("tool_done", entries=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error listing CVEs for {package}: {e}"
+    validate_package_name(package)
+    since_dt = parse_when(since) if since else None
+    if since and since_dt is None:
+        return MSG_SINCE_UNPARSEABLE.format(since)
+    if not await _ensure_fresh(package):
+        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    rows = await db.list_package_cves(package, since=since_dt)
+    _tlog(entries=len(rows))
+    since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
+    if not rows:
+        return f"No CVE mentions found in '{package}' changelog{since_tag}."
+    header = (
+        f"CVE entries for {package}{since_tag} — "
+        f"{len(rows)} matching changelog entries:"
+    )
+    return _format_listing_rows(rows, header, _CVE_CONTENT_RE)
 
 
 @mcp.tool()
+@_tool_wrapper("find_bug")
 async def find_bug(bug_id: str, package: str | None = None) -> str:
     """Case-insensitive search for a SUSE/openSUSE bugzilla reference across cached changelogs.
 
     *bug_id* accepts ``bsc#1234567``, ``boo#1234567``, or ``bnc#1234567``.
     Optionally scope to a single *package*.
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="find_bug", bug_id=bug_id, package=package)
     try:
-        if not BSC_RE.match(bug_id):
-            return f"Invalid bug ID '{bug_id}'. Expected bsc#NNNNNN, boo#NNNNNN, or bnc#NNNNNN."
-        bug_id = bug_id.lower()
-        if package:
-            validate_package_name(package)
-            if not await _ensure_fresh(package):
-                return f"Package '{package}' not found in any source."
+        bug_id = _validate_bug_id(bug_id)
+    except ValueError as e:
+        return str(e)
+    if package:
+        validate_package_name(package)
+        if not await _ensure_fresh(package):
+            return MSG_PKG_NOT_FOUND_SHORT.format(package)
 
-        matches = await db.find_bug(bug_id, package_name=package)
-        if not matches:
-            scope = f"package '{package}'" if package else "any cached package"
-            return f"No mentions of {bug_id} found in {scope}."
-
-        lines = [f"Found {len(matches)} entries mentioning {bug_id}:"]
-        for r in matches:
-            lines.append(
-                f"\n--- {r['package']} {r['version']} "
-                f"({r['entry_date'].date() if r['entry_date'] else '?'}) ---\n{r['content']}"
-            )
-        log.info("tool_done", matches=len(matches),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error searching for {bug_id}: {e}"
+    matches = await db.find_bug(bug_id, package_name=package)
+    _tlog(matches=len(matches))
+    if not matches:
+        scope = f"package '{package}'" if package else "any cached package"
+        return f"No mentions of {bug_id} found in {scope}."
+    return _format_match_rows(matches, f"Found {len(matches)} entries mentioning {bug_id}:")
 
 
 @mcp.tool()
+@_tool_wrapper("list_bugs")
 async def list_bugs(package: str, since: str | None = None) -> str:
     """List all SUSE/openSUSE bugzilla references (bsc#, boo#, bnc#) in *package*'s changelog.
 
     ``since`` accepts ISO 8601 or natural language (e.g. "2024-01-01", "1 year ago").
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="list_bugs", package=package, since=since)
-    try:
-        validate_package_name(package)
-        since_dt = parse_when(since) if since else None
-        if since and since_dt is None:
-            return f"Could not parse 'since' value: {since!r}."
-        if not await _ensure_fresh(package):
-            return f"Package '{package}' not found in any source."
-        rows = await db.list_package_bugs(package, since=since_dt)
-        if not rows:
-            scope = f" since {since_dt.date()}" if since_dt else ""
-            return f"No bug references found in '{package}' changelog{scope}."
-        since_tag = f" (since {since_dt.date()})" if since_dt else ""
-        lines = [f"Bug references for {package}{since_tag} — {len(rows)} matching changelog entries:"]
-        for r in rows:
-            d = r["entry_date"].date() if r["entry_date"] else "?"
-            bugs = ", ".join(sorted(set(_BSC_CONTENT_RE.findall(r["content"]))))
-            lines.append(f"\n--- {r['version']} ({d}) — {bugs} ---\n{r['content'].strip()[:400]}")
-        log.info("tool_done", entries=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error listing bugs for {package}: {e}"
+    validate_package_name(package)
+    since_dt = parse_when(since) if since else None
+    if since and since_dt is None:
+        return MSG_SINCE_UNPARSEABLE.format(since)
+    if not await _ensure_fresh(package):
+        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    rows = await db.list_package_bugs(package, since=since_dt)
+    _tlog(entries=len(rows))
+    since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
+    if not rows:
+        return f"No bug references found in '{package}' changelog{since_tag}."
+    header = (
+        f"Bug references for {package}{since_tag} — "
+        f"{len(rows)} matching changelog entries:"
+    )
+    return _format_listing_rows(rows, header, _BSC_CONTENT_RE)
 
 
 # ---------------------------------------------------------------------------
@@ -666,207 +718,167 @@ async def _ensure_spec(package: str, source: str = "opensuse") -> tuple[int, int
 
 
 @mcp.tool()
+@_tool_wrapper("get_spec_details")
 async def get_spec_details(package: str, source: str = "opensuse") -> str:
     """Return the parsed AST sections of *package*'s .spec from *source*
     (``opensuse`` or ``fedora``). Fetched on cache miss.
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_spec_details", package=package, source=source)
-    try:
-        validate_package_name(package)
-        if source not in _SPEC_SOURCES:
-            return f"Unknown source {source!r}. Use 'opensuse' or 'fedora'."
-        out = await _ensure_spec(package, source)
-        if out is None:
-            return f"No {source} spec found for {package}."
-        _, _, content, _ = out
-        sections = extract_sections(content)
-        lines = [f"Package: {package} (source: {source})  —  {len(sections)} sections"]
-        for name, body in sections.items():
-            body = body.strip()
-            if not body:
-                continue
-            lines.append(f"\n## {name}\n{body}")
-        log.info("tool_done", sections=len(sections),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching spec for {package}: {e}"
+    validate_package_name(package)
+    if source not in _SPEC_SOURCES:
+        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
+    out = await _ensure_spec(package, source)
+    if out is None:
+        return f"No {source} spec found for {package}."
+    _, _, content, _ = out
+    sections = extract_sections(content)
+    _tlog(sections=len(sections))
+    lines = [f"Package: {package} (source: {source})  —  {len(sections)} sections"]
+    for name, body in sections.items():
+        body = body.strip()
+        if not body:
+            continue
+        lines.append(f"\n## {name}\n{body}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("modernize_package")
 async def modernize_package(package: str, source: str = "opensuse") -> str:
     """Scan *package*'s .spec for deprecated macros and ask the LLM for a refactor."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="modernize_package", package=package, source=source)
-    try:
-        validate_package_name(package)
-        if source not in _SPEC_SOURCES:
-            return f"Unknown source {source!r}. Use 'opensuse' or 'fedora'."
-        out = await _ensure_spec(package, source)
-        if out is None:
-            return f"No {source} spec found for {package}."
-        _, _, content, _ = out
+    validate_package_name(package)
+    if source not in _SPEC_SOURCES:
+        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
+    out = await _ensure_spec(package, source)
+    if out is None:
+        return f"No {source} spec found for {package}."
+    _, _, content, _ = out
 
-        suggestions = check_modernization(content)
-        if not suggestions:
-            return f"No deprecated macros found in {package} ({source})."
+    suggestions = check_modernization(content)
+    _tlog(suggestions=len(suggestions))
+    if not suggestions:
+        return f"No deprecated macros found in {package} ({source})."
 
-        header = [f"Found {len(suggestions)} suggestion(s) for {package}:"]
-        for s in suggestions:
-            replacement = s.replacement if s.replacement is not None else "(remove)"
-            header.append(
-                f"  L{s.line}: {s.content}\n"
-                f"      pattern  : {s.pattern}\n"
-                f"      replace  : {replacement}\n"
-                f"      reason   : {s.description}"
-            )
-
-        context = (
-            f"Spec file for {package}:\n```\n{content}\n```\n\n"
-            "Findings:\n" + "\n".join(
-                f"- L{s.line} `{s.content}` — {s.description}" for s in suggestions
-            )
+    header = [f"Found {len(suggestions)} suggestion(s) for {package}:"]
+    for s in suggestions:
+        replacement = s.replacement if s.replacement is not None else "(remove)"
+        header.append(
+            f"  L{s.line}: {s.content}\n"
+            f"      pattern  : {s.pattern}\n"
+            f"      replace  : {replacement}\n"
+            f"      reason   : {s.description}"
         )
-        answer = await ask_llm(
-            "Rewrite this spec file applying the suggested modernizations. "
-            "Show only the changed sections.",
-            context,
+
+    context = (
+        f"Spec file for {package}:\n```\n{content}\n```\n\n"
+        "Findings:\n" + "\n".join(
+            f"- L{s.line} `{s.content}` — {s.description}" for s in suggestions
         )
-        log.info("tool_done", suggestions=len(suggestions),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(header) + "\n\n--- LLM rewrite ---\n" + answer
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error modernizing {package}: {e}"
+    )
+    answer = await ask_llm(
+        "Rewrite this spec file applying the suggested modernizations. "
+        "Show only the changed sections.",
+        context,
+    )
+    return "\n".join(header) + "\n\n--- LLM rewrite ---\n" + answer
 
 
 @mcp.tool()
+@_tool_wrapper("explain_build")
 async def explain_build(package: str, source: str = "opensuse") -> str:
     """LLM walk-through of the %prep / %build / %install / %check sections."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="explain_build", package=package, source=source)
-    try:
-        validate_package_name(package)
-        if source not in _SPEC_SOURCES:
-            return f"Unknown source {source!r}. Use 'opensuse' or 'fedora'."
-        out = await _ensure_spec(package, source)
-        if out is None:
-            return f"No {source} spec found for {package}."
-        _, _, content, _ = out
+    validate_package_name(package)
+    if source not in _SPEC_SOURCES:
+        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
+    out = await _ensure_spec(package, source)
+    if out is None:
+        return f"No {source} spec found for {package}."
+    _, _, content, _ = out
 
-        sections = extract_sections(content)
-        wanted = {"%prep", "%build", "%install", "%check"}
-        relevant = {k: v for k, v in sections.items() if k in wanted and v.strip()}
-        if not relevant:
-            return f"No build sections found in {package} spec."
+    sections = extract_sections(content)
+    wanted = {"%prep", "%build", "%install", "%check"}
+    relevant = {k: v for k, v in sections.items() if k in wanted and v.strip()}
+    _tlog(sections=len(relevant))
+    if not relevant:
+        return f"No build sections found in {package} spec."
 
-        context = "\n\n".join(f"## {name}\n{body}" for name, body in relevant.items())
-        answer = await ask_llm(
-            "Explain step-by-step what this package's build pipeline does. "
-            "Cover %prep, %build, %install, %check.",
-            context,
-        )
-        log.info("tool_done", sections=len(relevant),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Build walkthrough for {package} ({source}):\n\n{answer}"
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error explaining build for {package}: {e}"
+    context = "\n\n".join(f"## {name}\n{body}" for name, body in relevant.items())
+    answer = await ask_llm(
+        "Explain step-by-step what this package's build pipeline does. "
+        "Cover %prep, %build, %install, %check.",
+        context,
+    )
+    return f"Build walkthrough for {package} ({source}):\n\n{answer}"
 
 
 @mcp.tool()
+@_tool_wrapper("analyze_package")
 async def analyze_package(question: str, package: str, source: str = "opensuse") -> str:
     """LLM Q&A grounded on *package*'s stored spec (any source)."""
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="analyze_package", package=package, source=source)
-    try:
-        validate_package_name(package)
-        if source not in _SPEC_SOURCES:
-            return f"Unknown source {source!r}. Use 'opensuse' or 'fedora'."
-        out = await _ensure_spec(package, source)
-        if out is None:
-            return f"No {source} spec found for {package}."
-        _, _, content, _ = out
-        answer = await ask_llm(question, f"Spec for {package}:\n{content}")
-        log.info("tool_done", q_chars=len(question),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return answer
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error analyzing {package}: {e}"
+    validate_package_name(package)
+    if source not in _SPEC_SOURCES:
+        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
+    out = await _ensure_spec(package, source)
+    if out is None:
+        return f"No {source} spec found for {package}."
+    _, _, content, _ = out
+    _tlog(q_chars=len(question))
+    return await ask_llm(question, f"Spec for {package}:\n{content}")
 
 
 # ---------------------------------------------------------------------------
 # Phase 3: news + openQA tools
 # ---------------------------------------------------------------------------
 @mcp.tool()
+@_tool_wrapper("get_news")
 async def get_news(package: str | None = None, limit: int = 10, refresh: bool = False) -> str:
     """Recent Fedora Bodhi + openSUSE news items, optionally scoped to *package*.
 
     Set ``refresh=True`` to re-pull both feeds before querying.
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_news", package=package, limit=limit, refresh=refresh)
-    try:
-        if package:
-            validate_package_name(package)
-        if refresh:
-            items = await fetch_all_news(limit=max(limit, 20))
-            inserted = await db.upsert_news(items)
-            log.info("news_refreshed", fetched=len(items), inserted=inserted)
+    if package:
+        validate_package_name(package)
+    if refresh:
+        items = await fetch_all_news(limit=max(limit, 20))
+        inserted = await db.upsert_news(items)
+        _tlog(fetched=len(items), inserted=inserted)
 
-        rows = await db.get_news(package_name=package, limit=limit)
-        if not rows:
-            scope = f"package '{package}'" if package else "any package"
-            return f"No news items for {scope}. Try refresh=True to pull latest feeds."
+    rows = await db.get_news(package_name=package, limit=limit)
+    _tlog(results=len(rows))
+    if not rows:
+        scope = f"package '{package}'" if package else "any package"
+        return f"No news items for {scope}. Try refresh=True to pull latest feeds."
 
-        lines = [
-            f"News items ({len(rows)}{' for ' + package if package else ''}):",
-        ]
-        for r in rows:
-            d = r["item_date"].date() if r["item_date"] else "?"
-            lines.append(
-                f"\n[{r['importance'] or '-'}] {r['title']}\n"
-                f"  source={r['source']} type={r['item_type'] or '-'} date={d}\n"
-                f"  url={r['url'] or '-'}\n"
-                f"  {(r['content'] or '').strip()[:300]}"
-            )
-        log.info("tool_done", results=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching news: {e}"
+    lines = [f"News items ({len(rows)}{' for ' + package if package else ''}):"]
+    for r in rows:
+        lines.append(
+            f"\n[{r['importance'] or '-'}] {r['title']}\n"
+            f"  source={r['source']} type={r['item_type'] or '-'} date={_format_date(r['item_date'])}\n"
+            f"  url={r['url'] or '-'}\n"
+            f"  {(r['content'] or '').strip()[:300]}"
+        )
+    return "\n".join(lines)
 
 
 @mcp.tool()
+@_tool_wrapper("get_openqa_tests")
 async def get_openqa_tests(package: str) -> str:
     """List openQA tests that exercise *package*. Sourced from a pre-ingested
     ``os-autoinst-distri-opensuse`` checkout — refresh via ``ingest_openqa_repo``
     in scripts/worker.py.
     """
-    t0 = time.perf_counter()
-    log = _logger.bind(tool="get_openqa_tests", package=package)
-    try:
-        validate_package_name(package)
-        rows = await db.get_openqa_tests(package)
-        if not rows:
-            return (
-                f"No openQA tests recorded for '{package}'. "
-                "Run the openQA ingest in the worker if the local DB is empty."
-            )
-        lines = [f"openQA tests for {package} ({len(rows)}):"]
-        for r in rows:
-            summary = f" — {r['summary']}" if r["summary"] else ""
-            lines.append(f"  {r['test_path']}{summary}")
-        log.info("tool_done", tests=len(rows),
-                 elapsed_s=round(time.perf_counter() - t0, 3))
-        return "\n".join(lines)
-    except Exception as e:
-        log.exception("tool_error", elapsed_s=round(time.perf_counter() - t0, 3))
-        return f"Error fetching openQA tests for {package}: {e}"
+    validate_package_name(package)
+    rows = await db.get_openqa_tests(package)
+    _tlog(tests=len(rows))
+    if not rows:
+        return (
+            f"No openQA tests recorded for '{package}'. "
+            "Run the openQA ingest in the worker if the local DB is empty."
+        )
+    lines = [f"openQA tests for {package} ({len(rows)}):"]
+    for r in rows:
+        summary = f" — {r['summary']}" if r["summary"] else ""
+        lines.append(f"  {r['test_path']}{summary}")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
