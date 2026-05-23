@@ -3,26 +3,25 @@ from __future__ import annotations
 
 import logging
 
+import pytest
 import structlog
 
 from src.logging_config import configure_logging
 
 
-def test_configure_logging_console_mode() -> None:
-    configure_logging(level=logging.DEBUG, json_logs=False)
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"level": logging.DEBUG, "json_logs": False},
+        {"level": logging.WARNING, "json_logs": True},
+        {},  # defaults
+    ],
+    ids=["console_mode", "json_mode", "defaults"],
+)
+def test_configure_logging_sets_wrapper(kwargs: dict) -> None:
+    configure_logging(**kwargs)
     config = structlog.get_config()
     assert config["wrapper_class"] is not None
-
-
-def test_configure_logging_json_mode() -> None:
-    configure_logging(level=logging.WARNING, json_logs=True)
-    config = structlog.get_config()
-    assert config["wrapper_class"] is not None
-
-
-def test_configure_logging_default_args() -> None:
-    configure_logging()
-    config = structlog.get_config()
     assert config["logger_factory"] is not None
 
 

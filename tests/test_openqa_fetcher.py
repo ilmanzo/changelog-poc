@@ -6,23 +6,30 @@ import pytest
 from src.openqa_fetcher import scan_tests
 
 
-def test_scan_tests_missing_dir(tmp_path) -> None:
-    result = scan_tests(tmp_path / "nonexistent")
-    assert result == []
+def _setup_missing_dir(tmp_path):
+    return tmp_path / "nonexistent"
 
 
-def test_scan_tests_no_pm_files(tmp_path) -> None:
+def _setup_no_pm_files(tmp_path):
     (tmp_path / "tests").mkdir()
-    result = scan_tests(tmp_path)
-    assert result == []
+    return tmp_path
 
 
-def test_scan_tests_pm_without_package_header(tmp_path) -> None:
+def _setup_no_package_header(tmp_path):
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "no_pkg.pm").write_text("# Summary: just a summary\nsome perl code\n")
-    result = scan_tests(tmp_path)
-    assert result == []
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [_setup_missing_dir, _setup_no_pm_files, _setup_no_package_header],
+    ids=["missing_dir", "no_pm_files", "no_package_header"],
+)
+def test_scan_tests_empty_cases(tmp_path, setup) -> None:
+    scan_root = setup(tmp_path)
+    assert scan_tests(scan_root) == []
 
 
 def test_scan_tests_single_package(tmp_path) -> None:

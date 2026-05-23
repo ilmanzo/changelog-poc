@@ -48,24 +48,20 @@ async def test_ask_llm_sends_question_in_prompt() -> None:
     assert "Explain %build section" in user_message
 
 
-async def test_ask_llm_http_error_returns_error_string() -> None:
-    mock_client = _mock_client(status_code=500)
+def _err_client_factory(case: str):
+    import httpx
+    if case == "http_500":
+        return _mock_client(status_code=500)
+    if case == "connect_error":
+        return _mock_client(side_effect=httpx.ConnectError("refused"))
+    if case == "timeout":
+        return _mock_client(side_effect=httpx.TimeoutException("timeout"))
+    raise ValueError(case)
+
+
+@pytest.mark.parametrize("case", ["http_500", "connect_error", "timeout"])
+async def test_ask_llm_error_returns_error_string(case: str) -> None:
+    mock_client = _err_client_factory(case)
     with patch("src.llm.httpx.AsyncClient", return_value=mock_client):
         result = await ask_llm("question", "context")
     assert "Error" in result or "500" in result
-
-
-async def test_ask_llm_connection_error_returns_error_string() -> None:
-    import httpx
-    mock_client = _mock_client(side_effect=httpx.ConnectError("refused"))
-    with patch("src.llm.httpx.AsyncClient", return_value=mock_client):
-        result = await ask_llm("question", "context")
-    assert "Error" in result
-
-
-async def test_ask_llm_timeout_returns_error_string() -> None:
-    import httpx
-    mock_client = _mock_client(side_effect=httpx.TimeoutException("timeout"))
-    with patch("src.llm.httpx.AsyncClient", return_value=mock_client):
-        result = await ask_llm("question", "context")
-    assert "Error" in result

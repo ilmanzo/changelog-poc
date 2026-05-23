@@ -45,27 +45,21 @@ def test_parse_empty_returns_empty() -> None:
     assert parse_obs_changes("") == []
 
 
-def test_parse_minimal_entry_count() -> None:
+@pytest.mark.parametrize(
+    "field,check",
+    [
+        ("count", lambda e: len(e) == 1),
+        ("author", lambda e: "user@example.com" in e[0].author),
+        ("date_not_min", lambda e: e[0].date != datetime.min),
+        ("date_year", lambda e: e[0].date.year == 2024),
+        ("date_month", lambda e: e[0].date.month == 1),
+        ("version_detected", lambda e: e[0].version == "9.2.0100"),
+    ],
+    ids=["count", "author", "date_not_min", "date_year", "date_month", "version_detected"],
+)
+def test_parse_minimal_entry_fields(field: str, check) -> None:
     entries = parse_obs_changes(MINIMAL_ENTRY)
-    assert len(entries) == 1
-
-
-def test_parse_minimal_entry_author() -> None:
-    entries = parse_obs_changes(MINIMAL_ENTRY)
-    assert "user@example.com" in entries[0].author
-
-
-def test_parse_minimal_entry_date() -> None:
-    entries = parse_obs_changes(MINIMAL_ENTRY)
-    assert entries[0].date != datetime.min
-    assert entries[0].date.year == 2024
-    assert entries[0].date.month == 1
-
-
-def test_parse_minimal_entry_version_detected() -> None:
-    entries = parse_obs_changes(MINIMAL_ENTRY)
-    # "Update to version 9.2.0100" should be detected
-    assert entries[0].version == "9.2.0100"
+    assert check(entries), f"field check failed: {field}"
 
 
 def test_parse_two_entries_count() -> None:

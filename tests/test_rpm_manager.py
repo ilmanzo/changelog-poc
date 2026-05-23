@@ -96,16 +96,29 @@ def test_parse_changelog_entries_ordered_newest_first() -> None:
 # ---------------------------------------------------------------------------
 # get_dependencies — patch _exec
 # ---------------------------------------------------------------------------
-async def test_get_dependencies_parses_packages() -> None:
+@pytest.mark.parametrize(
+    "exec_responses,package,expected_check",
+    [
+        (
+            [("libm.so.6\nglibc\n", "", 0), ("glibc\nlibc6\n", "", 0)],
+            "vim",
+            lambda d: "glibc" in d or "libc6" in d,
+        ),
+        (
+            [("rpmlib(PayloadFilesHavePrefix)\nconfig(foo)\n", "", 0), ("", "", 0)],
+            "minimal_pkg",
+            lambda d: d == frozenset(),
+        ),
+    ],
+    ids=["parses_packages", "empty_deps"],
+)
+async def test_get_dependencies(exec_responses, package, expected_check) -> None:
     mgr = RPMManager()
     mgr.get_dependencies.cache_clear()  # type: ignore[attr-defined]
     with patch.object(mgr, "_exec", new=AsyncMock()) as mock_exec:
-        mock_exec.side_effect = [
-            ("libm.so.6\nglibc\n", "", 0),  # rpm -qR
-            ("glibc\nlibc6\n", "", 0),        # rpm -q --whatprovides
-        ]
-        deps = await mgr.get_dependencies("vim")
-    assert "glibc" in deps or "libc6" in deps
+        mock_exec.side_effect = exec_responses
+        deps = await mgr.get_dependencies(package)
+    assert expected_check(deps)
 
 
 async def test_get_dependencies_not_installed_raises() -> None:
@@ -117,40 +130,27 @@ async def test_get_dependencies_not_installed_raises() -> None:
             await mgr.get_dependencies("vim_nonexistent_xyzzy")
 
 
-async def test_get_dependencies_empty_deps() -> None:
-    mgr = RPMManager()
-    mgr.get_dependencies.cache_clear()  # type: ignore[attr-defined]
-    with patch.object(mgr, "_exec", new=AsyncMock()) as mock_exec:
-        mock_exec.side_effect = [
-            ("rpmlib(PayloadFilesHavePrefix)\nconfig(foo)\n", "", 0),
-            ("", "", 0),
-        ]
-        deps = await mgr.get_dependencies("minimal_pkg")
-    assert deps == frozenset()
-
-
 # ---------------------------------------------------------------------------
 # get_reverse_dependencies — patch _exec
 # ---------------------------------------------------------------------------
-async def test_get_reverse_deps_returns_packages() -> None:
+@pytest.mark.parametrize(
+    "exec_responses,expected_check",
+    [
+        (
+            [("openssl = 3.1\nlibssl.so.3\n", "", 0), ("curl\nwget\n", "", 0)],
+            lambda r: "curl" in r or "wget" in r,
+        ),
+        (
+            [("openssl = 3.1\n", "", 0), ("openssl\ncurl\n", "", 0)],
+            lambda r: "openssl" not in r,
+        ),
+    ],
+    ids=["returns_packages", "excludes_self"],
+)
+async def test_get_reverse_deps(exec_responses, expected_check) -> None:
     mgr = RPMManager()
     mgr.get_reverse_dependencies.cache_clear()  # type: ignore[attr-defined]
     with patch.object(mgr, "_exec", new=AsyncMock()) as mock_exec:
-        mock_exec.side_effect = [
-            ("openssl = 3.1\nlibssl.so.3\n", "", 0),  # --provides
-            ("curl\nwget\n", "", 0),                    # --whatrequires
-        ]
+        mock_exec.side_effect = exec_responses
         rdeps = await mgr.get_reverse_dependencies("openssl")
-    assert "curl" in rdeps or "wget" in rdeps
-
-
-async def test_get_reverse_deps_excludes_self() -> None:
-    mgr = RPMManager()
-    mgr.get_reverse_dependencies.cache_clear()  # type: ignore[attr-defined]
-    with patch.object(mgr, "_exec", new=AsyncMock()) as mock_exec:
-        mock_exec.side_effect = [
-            ("openssl = 3.1\n", "", 0),
-            ("openssl\ncurl\n", "", 0),
-        ]
-        rdeps = await mgr.get_reverse_dependencies("openssl")
-    assert "openssl" not in rdeps
+    assert expected_check(rdeps)

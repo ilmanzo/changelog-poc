@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from src.news_fetcher import (
     _classify_bodhi,
     _pkg_from_title,
@@ -29,16 +31,17 @@ def _mock_client(status_code: int = 200, text: str = "", json_body: dict | None 
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
-def test_classify_bodhi_security() -> None:
-    assert _classify_bodhi({"type": "security"}) == "CRITICAL"
-
-
-def test_classify_bodhi_critpath() -> None:
-    assert _classify_bodhi({"critpath": True}) == "CRITICAL"
-
-
-def test_classify_bodhi_routine() -> None:
-    assert _classify_bodhi({"type": "bugfix"}) == "Routine"
+@pytest.mark.parametrize(
+    "update,expected",
+    [
+        ({"type": "security"}, "CRITICAL"),
+        ({"critpath": True}, "CRITICAL"),
+        ({"type": "bugfix"}, "Routine"),
+    ],
+    ids=["security", "critpath", "routine_bugfix"],
+)
+def test_classify_bodhi(update: dict, expected: str) -> None:
+    assert _classify_bodhi(update) == expected
 
 
 def test_pkg_from_title_with_dash() -> None:
@@ -76,17 +79,20 @@ async def test_fetch_bodhi_skips_empty_title() -> None:
     assert result == []
 
 
-async def test_fetch_bodhi_http_error_returns_empty() -> None:
-    mock = _mock_client(status_code=503)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
-        result = await fetch_bodhi()
-    assert result == []
-
-
-async def test_fetch_bodhi_network_error_returns_empty() -> None:
+def _bodhi_err_client(case: str) -> MagicMock:
     import httpx
-    mock = _mock_client()
-    mock.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    if case == "http_503":
+        return _mock_client(status_code=503)
+    if case == "network":
+        m = _mock_client()
+        m.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        return m
+    raise ValueError(case)
+
+
+@pytest.mark.parametrize("case", ["http_503", "network"], ids=["http_error", "network_error"])
+async def test_fetch_bodhi_error_returns_empty(case: str) -> None:
+    mock = _bodhi_err_client(case)
     with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
         result = await fetch_bodhi()
     assert result == []
@@ -129,17 +135,20 @@ async def test_fetch_opensuse_news_tumbleweed_critical() -> None:
     assert tumbleweed.package_name == "Tumbleweed"
 
 
-async def test_fetch_opensuse_news_http_error_returns_empty() -> None:
-    mock = _mock_client(status_code=404)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
-        result = await fetch_opensuse_news()
-    assert result == []
-
-
-async def test_fetch_opensuse_news_network_error_returns_empty() -> None:
+def _suse_err_client(case: str) -> MagicMock:
     import httpx
-    mock = _mock_client()
-    mock.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+    if case == "http_404":
+        return _mock_client(status_code=404)
+    if case == "network":
+        m = _mock_client()
+        m.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        return m
+    raise ValueError(case)
+
+
+@pytest.mark.parametrize("case", ["http_404", "network"], ids=["http_error", "network_error"])
+async def test_fetch_opensuse_news_error_returns_empty(case: str) -> None:
+    mock = _suse_err_client(case)
     with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
         result = await fetch_opensuse_news()
     assert result == []

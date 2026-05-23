@@ -43,19 +43,21 @@ def test_fallback_split_header_only() -> None:
     assert "foo" in sections["header"]
 
 
-def test_fallback_split_detects_build_section() -> None:
-    content = "Name: foo\n%build\n%make_build\n"
+@pytest.mark.parametrize(
+    "content,expected_sections",
+    [
+        ("Name: foo\n%build\n%make_build\n", ["%build"]),
+        (
+            "Name: foo\n%prep\n%autosetup\n%build\n%make_build\n%install\n%make_install\n",
+            ["%prep", "%build", "%install"],
+        ),
+    ],
+    ids=["single_build", "multiple_sections"],
+)
+def test_fallback_split_detects_sections(content: str, expected_sections: list[str]) -> None:
     sections = _fallback_split(content)
-    assert "%build" in sections
-    assert "%make_build" in sections["%build"]
-
-
-def test_fallback_split_detects_multiple_sections() -> None:
-    content = "Name: foo\n%prep\n%autosetup\n%build\n%make_build\n%install\n%make_install\n"
-    sections = _fallback_split(content)
-    assert "%prep" in sections
-    assert "%build" in sections
-    assert "%install" in sections
+    for name in expected_sections:
+        assert name in sections
 
 
 def test_fallback_split_empty_content() -> None:
