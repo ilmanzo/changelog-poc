@@ -76,14 +76,14 @@ class Database:
 
     def _scrubbed_dsn(self) -> str:
         # Hide password in logs.
+        from urllib.parse import urlparse, urlunparse
         try:
-            from urllib.parse import urlparse, urlunparse
             p = urlparse(self._dsn)
             if p.password:
                 netloc = p.netloc.replace(f":{p.password}@", ":***@")
                 return urlunparse(p._replace(netloc=netloc))
-        except Exception:
-            pass
+        except (AttributeError, ValueError) as e:
+            _logger.debug("dsn_scrub_failed", error=str(e))
         return self._dsn
 
     async def apply_migrations(self) -> None:
@@ -135,7 +135,8 @@ class Database:
                 "SELECT upstream_url FROM packages WHERE name = $1 AND distro = $2",
                 name, distro,
             )
-            return str(row["upstream_url"]) if row and row["upstream_url"] else None
+            url = row.get("upstream_url") if row else None
+            return str(url) if url else None
 
     # ------------------------------------------------------------------
     # changelog_entries
@@ -255,122 +256,89 @@ class Database:
                 query, limit,
             )
 
+    async def _fetch_text_search(
+        self,
+        *,
+        where_clauses: list[str],
+        params: list[Any],
+        include_package: bool = False,
+        limit: int | None = None,
+    ) -> list[asyncpg.Record]:
+        # Why: caller owns $N placeholder numbering — clauses are concatenated verbatim
+        # so each builder can keep its SQL readable without a renumbering pass here.
+        select_cols = (
+            "p.name AS package, ce.version, ce.entry_date, ce.content"
+            if include_package
+            else "ce.version, ce.entry_date, ce.content"
+        )
+        sql = (
+            f"SELECT {select_cols}\n"
+            "FROM changelog_entries ce\n"
+            "JOIN packages p ON p.id = ce.package_id\n"
+            f"WHERE {' AND '.join(where_clauses)}\n"
+            "ORDER BY ce.entry_date DESC"
+        )
+        if limit is not None:
+            sql += f"\nLIMIT {int(limit)}"
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(sql, *params)
+
     async def list_package_bugs(
         self, package_name: str, since: datetime | None = None
     ) -> list[asyncpg.Record]:
         """Return entries for *package_name* mentioning a bsc#/boo#/bnc# bug reference."""
-        async with self.pool.acquire() as conn:
-            if since is not None:
-                return await conn.fetch(
-                    """
-                    SELECT ce.version, ce.entry_date, ce.content
-                    FROM changelog_entries ce
-                    JOIN packages p ON p.id = ce.package_id
-                    WHERE p.name = $1
-                      AND ce.content ~* '\\m(bsc|boo|bnc)#\\d+'
-                      AND ce.entry_date >= $2
-                    ORDER BY ce.entry_date DESC
-                    """,
-                    package_name, since,
-                )
-            return await conn.fetch(
-                """
-                SELECT ce.version, ce.entry_date, ce.content
-                FROM changelog_entries ce
-                JOIN packages p ON p.id = ce.package_id
-                WHERE p.name = $1
-                  AND ce.content ~* '\\m(bsc|boo|bnc)#\\d+'
-                ORDER BY ce.entry_date DESC
-                """,
-                package_name,
-            )
+        where = ["p.name = $1", r"ce.content ~* '\m(bsc|boo|bnc)#\d+'"]
+        params: list[Any] = [package_name]
+        if since is not None:
+            where.append("ce.entry_date >= $2")
+            params.append(since)
+        return await self._fetch_text_search(where_clauses=where, params=params)
 
     async def find_bug(
         self, bug_ref: str, package_name: str | None = None
     ) -> list[asyncpg.Record]:
         """Case-insensitive substring search for a specific bug ID (e.g. bsc#1234567)."""
         like = f"%{bug_ref}%"
-        async with self.pool.acquire() as conn:
-            if package_name:
-                return await conn.fetch(
-                    """
-                    SELECT p.name AS package, ce.version, ce.entry_date, ce.content
-                    FROM changelog_entries ce
-                    JOIN packages p ON p.id = ce.package_id
-                    WHERE p.name = $1 AND ce.content ILIKE $2
-                    ORDER BY ce.entry_date DESC
-                    """,
-                    package_name, like,
-                )
-            return await conn.fetch(
-                """
-                SELECT p.name AS package, ce.version, ce.entry_date, ce.content
-                FROM changelog_entries ce
-                JOIN packages p ON p.id = ce.package_id
-                WHERE ce.content ILIKE $1
-                ORDER BY ce.entry_date DESC
-                LIMIT 200
-                """,
-                like,
+        if package_name:
+            return await self._fetch_text_search(
+                where_clauses=["p.name = $1", "ce.content ILIKE $2"],
+                params=[package_name, like],
+                include_package=True,
             )
+        return await self._fetch_text_search(
+            where_clauses=["ce.content ILIKE $1"],
+            params=[like],
+            include_package=True,
+            limit=200,
+        )
 
     async def list_package_cves(
         self, package_name: str, since: datetime | None = None
     ) -> list[asyncpg.Record]:
         """Return all changelog entries for *package_name* that mention a CVE ID."""
-        async with self.pool.acquire() as conn:
-            if since is not None:
-                return await conn.fetch(
-                    """
-                    SELECT ce.version, ce.entry_date, ce.content
-                    FROM changelog_entries ce
-                    JOIN packages p ON p.id = ce.package_id
-                    WHERE p.name = $1
-                      AND ce.content ILIKE '%CVE-%'
-                      AND ce.entry_date >= $2
-                    ORDER BY ce.entry_date DESC
-                    """,
-                    package_name, since,
-                )
-            return await conn.fetch(
-                """
-                SELECT ce.version, ce.entry_date, ce.content
-                FROM changelog_entries ce
-                JOIN packages p ON p.id = ce.package_id
-                WHERE p.name = $1
-                  AND ce.content ILIKE '%CVE-%'
-                ORDER BY ce.entry_date DESC
-                """,
-                package_name,
-            )
+        where = ["p.name = $1", "ce.content ILIKE '%CVE-%'"]
+        params: list[Any] = [package_name]
+        if since is not None:
+            where.append("ce.entry_date >= $2")
+            params.append(since)
+        return await self._fetch_text_search(where_clauses=where, params=params)
 
     async def find_cve(
         self, cve_id: str, package_name: str | None = None
     ) -> list[asyncpg.Record]:
         like = f"%{cve_id}%"
-        async with self.pool.acquire() as conn:
-            if package_name:
-                return await conn.fetch(
-                    """
-                    SELECT p.name AS package, ce.version, ce.entry_date, ce.content
-                    FROM changelog_entries ce
-                    JOIN packages p ON p.id = ce.package_id
-                    WHERE p.name = $1 AND ce.content ILIKE $2
-                    ORDER BY ce.entry_date DESC
-                    """,
-                    package_name, like,
-                )
-            return await conn.fetch(
-                """
-                SELECT p.name AS package, ce.version, ce.entry_date, ce.content
-                FROM changelog_entries ce
-                JOIN packages p ON p.id = ce.package_id
-                WHERE ce.content ILIKE $1
-                ORDER BY ce.entry_date DESC
-                LIMIT 200
-                """,
-                like,
+        if package_name:
+            return await self._fetch_text_search(
+                where_clauses=["p.name = $1", "ce.content ILIKE $2"],
+                params=[package_name, like],
+                include_package=True,
             )
+        return await self._fetch_text_search(
+            where_clauses=["ce.content ILIKE $1"],
+            params=[like],
+            include_package=True,
+            limit=200,
+        )
 
     # ------------------------------------------------------------------
     # specs + spec_sections

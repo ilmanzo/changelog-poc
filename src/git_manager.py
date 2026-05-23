@@ -61,11 +61,10 @@ class GitManager:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        assert proc.returncode is not None
         return (
             stdout.decode("utf-8", errors="ignore").strip(),
             stderr.decode("utf-8", errors="ignore").strip(),
-            proc.returncode,
+            proc.returncode or 0,
         )
 
     async def ensure_repo(self, url: str, package_name: str) -> Path:

@@ -16,6 +16,10 @@ _HEADER_RE = re.compile(
     r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3} \d{4}) - (.*)$"
 )
 
+# Why: precedence matters — first match wins. The explicit "update/upgrade to version X"
+# patterns are checked before the looser "version X" / "for X" fallbacks so a changelog
+# entry that mentions both an old reference version and a new target version returns
+# the target, not the reference.
 _VERSION_PATTERNS = [
     re.compile(r"[Uu]pdat(?:e|ed) to version ([\d]+(?:\.[\d]+)*)"),
     re.compile(r"[Uu]pgrad(?:e|ed) to version ([\d]+(?:\.[\d]+)*)"),

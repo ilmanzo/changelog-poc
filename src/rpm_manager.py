@@ -24,11 +24,10 @@ class RPMManager:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        assert proc.returncode is not None
         return (
             stdout.decode("utf-8", errors="ignore").strip(),
             stderr.decode("utf-8", errors="ignore").strip(),
-            proc.returncode,
+            proc.returncode or 0,
         )
 
     @alru_cache(maxsize=128)
@@ -103,17 +102,27 @@ class RPMManager:
         rdeps.discard(package_name)
         return frozenset(rdeps)
 
+    _HEADER_RE = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}) (.*)$")
+    _BACKFILL_VERSION_RE = re.compile(
+        r"^[ \t]*- (?:Update|Upgrade) to (?:version )?([\d\.]+)",
+        re.MULTILINE | re.IGNORECASE,
+    )
+
     @staticmethod
     def parse_changelog(raw_text: str) -> list[ChangelogEntry]:
         """Parse RPM ``--changelog`` output into ChangelogEntry list."""
-        entries: list[ChangelogEntry] = []
-        header_re = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}) (.*)$")
+        entries = RPMManager._parse_header_blocks(raw_text)
+        RPMManager._backfill_missing_versions(entries)
+        return entries
 
+    @staticmethod
+    def _parse_header_blocks(raw_text: str) -> list[ChangelogEntry]:
+        entries: list[ChangelogEntry] = []
         current_header: tuple[str, str, str] | None = None
         current_content: list[str] = []
 
         for line in raw_text.splitlines():
-            match = header_re.match(line)
+            match = RPMManager._HEADER_RE.match(line)
             if match:
                 if current_header:
                     entries.append(RPMManager._create_entry(current_header, current_content))
@@ -121,9 +130,10 @@ class RPMManager:
                 header_text = match.group(2)
                 version = "unknown"
                 if " - " in header_text:
-                    parts = header_text.rsplit(" - ", 1)
-                    author = parts[0]
-                    version = parts[1]
+                    # Why: rpm header convention is "Author Name <email> - version-release";
+                    # rsplit on the last " - " keeps email addresses (which may contain dashes)
+                    # attached to the author rather than misclassified as the version.
+                    author, version = header_text.rsplit(" - ", 1)
                 else:
                     author = header_text
 
@@ -135,14 +145,15 @@ class RPMManager:
         if current_header:
             entries.append(RPMManager._create_entry(current_header, current_content))
 
+        return entries
+
+    @staticmethod
+    def _backfill_missing_versions(entries: list[ChangelogEntry]) -> None:
+        """Mutates *entries* in place: when the header lacked a version, look in the body."""
         for idx, e in enumerate(entries):
             if e.version != "unknown":
                 continue
-            v_match = re.search(
-                r"^[ \t]*- (?:Update|Upgrade) to (?:version )?([\d\.]+)",
-                e.content,
-                re.MULTILINE | re.IGNORECASE,
-            )
+            v_match = RPMManager._BACKFILL_VERSION_RE.search(e.content)
             if v_match:
                 entries[idx] = ChangelogEntry(
                     version=v_match.group(1),
@@ -150,7 +161,6 @@ class RPMManager:
                     date=e.date,
                     content=e.content,
                 )
-        return entries
 
     @staticmethod
     def _create_entry(

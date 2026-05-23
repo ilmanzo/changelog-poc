@@ -36,12 +36,14 @@ run_unit() {
 run_e2e_db() {
     echo "=== DB integration tests ==="
     export DOCKER_HOST="unix:///run/user/${UID}/podman/podman.sock"
+    export TESTCONTAINERS_RYUK_DISABLED=true
     PYTHONPATH=. uv run pytest "${E2E_DB_ARGS[@]}" "$@"
 }
 
 run_e2e_gemini() {
     echo "=== Gemini e2e tests ==="
     export DOCKER_HOST="unix:///run/user/${UID}/podman/podman.sock"
+    export TESTCONTAINERS_RYUK_DISABLED=true
     PYTHONPATH=. uv run pytest "${E2E_GEMINI_ARGS[@]}" "$@"
 }
 

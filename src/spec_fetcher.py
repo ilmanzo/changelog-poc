@@ -18,11 +18,15 @@ OBS_BASE = "https://build.opensuse.org/public/source/openSUSE:Factory"
 _TIMEOUT = httpx.Timeout(settings.obs_timeout_total, connect=settings.obs_timeout_connect)
 
 
+def _new_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True)
+
+
 async def fetch_pagure_spec(package: str) -> tuple[str | None, str | None]:
     """Return (spec_text, source_url) or (None, None) if not found."""
     api_url = f"{PAGURE_BASE}/api/0/rpms/{package}"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with _new_client() as client:
             meta = await client.get(api_url)
             if meta.status_code != 200:
                 return None, None
@@ -40,7 +44,7 @@ async def fetch_obs_spec(package: str) -> tuple[str | None, str | None]:
     """Return (spec_text, source_url) or (None, None) if not found."""
     url = f"{OBS_BASE}/{package}/{package}.spec"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+        async with _new_client() as client:
             resp = await client.get(url)
             if resp.status_code == 200 and resp.text:
                 return resp.text, url
