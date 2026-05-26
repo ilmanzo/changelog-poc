@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     cache_ttl_changelog_s: int = 86400    # 24h: package builds rarely flip more often
     cache_ttl_spec_s: int = 604800        # 7d: spec churn is glacial
     cache_max_entries: int = 1000         # per package fetch cap
+    cache_max_entry_bytes: int = 8192     # per-entry sanitiser truncation cap
     eviction_min_interval_s: int = 3600   # min gap between opportunistic sweeps
 
     # Embedding

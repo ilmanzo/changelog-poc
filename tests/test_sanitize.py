@@ -68,3 +68,21 @@ def test_attack_injection_ansi_hidden_text() -> None:
     assert "\x1b" not in cleaned
     # Visible text remains visible — sanitisation does not censor content
     assert "IGNORE PRIOR INSTRUCTIONS" in cleaned
+
+
+def test_truncates_at_max_bytes() -> None:
+    payload = "A" * 20_000
+    cleaned = scrub_external(payload, max_bytes=1024)
+    assert cleaned.startswith("A" * 1024)
+    assert "[...truncated at 1024 bytes]" in cleaned
+    assert len(cleaned.encode("utf-8")) < 1024 + 64
+
+
+def test_does_not_truncate_short_text() -> None:
+    payload = "short and harmless"
+    assert scrub_external(payload, max_bytes=1024) == payload
+
+
+def test_max_bytes_zero_disables_truncation() -> None:
+    payload = "B" * 12_000
+    assert scrub_external(payload, max_bytes=0) == payload
