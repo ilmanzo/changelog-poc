@@ -13,8 +13,11 @@ from .sanitize import scrub_external
 
 _BLOCK_SPLIT = re.compile(r"^-{67}$", re.MULTILINE)
 
+# Why: timezone abbreviation length is 3–5 chars (UTC=3, CEST/AEST=4, AEDT=4,
+# WEST=4, MSKT=4, NZDST=5). The original {3} silently dropped non-3-char-TZ
+# entries because the regex never matched and the block was discarded.
 _HEADER_RE = re.compile(
-    r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3} \d{4}) - (.*)$"
+    r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3,5} \d{4}) - (.*)$"
 )
 
 # Why: precedence matters — first match wins. The explicit "update/upgrade to version X"

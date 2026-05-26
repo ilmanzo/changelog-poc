@@ -99,3 +99,32 @@ def test_parse_junk_only_returns_empty() -> None:
     # Content that has a separator but no valid header → parser skips block
     result = parse_obs_changes("-------------------------------------------------------------------\njust junk text with no date header\n")
     assert result == []
+
+
+# --- B1: 4-5 char timezone abbreviations must be accepted ---
+
+
+_TZ_HEADER = (
+    "-------------------------------------------------------------------\n"
+    "{header}\n"
+    "\n"
+    "- Update to version 1.2.3\n"
+    "\n"
+)
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Thu Jan  4 10:30:00 UTC 2024 - alice@example.com",   # 3 chars (regression)
+        "Thu Jan  4 10:30:00 CEST 2024 - bob@example.com",    # 4 chars
+        "Thu Jan  4 10:30:00 AEST 2024 - carol@example.com",  # 4 chars
+        "Thu Jan  4 10:30:00 BRST 2024 - dave@example.com",   # 4 chars
+        "Thu Jan  4 10:30:00 NZDST 2024 - erin@example.com",  # 5 chars
+    ],
+    ids=["UTC_3", "CEST_4", "AEST_4", "BRST_4", "NZDST_5"],
+)
+def test_parse_accepts_3_to_5_char_timezones(header: str) -> None:
+    entries = parse_obs_changes(_TZ_HEADER.format(header=header))
+    assert len(entries) == 1, f"entry dropped for header: {header!r}"
+    assert entries[0].version == "1.2.3"
