@@ -10,6 +10,7 @@ from specfile import Specfile
 
 from .embedder import chunk_text
 from .models import SpecSection
+from .sanitize import scrub_external
 
 _logger = structlog.get_logger("rpm-mcp.spec_parser")
 
@@ -21,6 +22,7 @@ _SECTION_TAGS = (
 
 def extract_sections(content: str) -> dict[str, str]:
     """Section name → raw section content. Includes a synthetic 'header' preamble."""
+    content = scrub_external(content)
     try:
         spec = Specfile(content=content, sourcedir="/tmp")
         sections: dict[str, str] = {}

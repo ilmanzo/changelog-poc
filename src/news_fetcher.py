@@ -14,6 +14,7 @@ import structlog
 
 from .config import settings
 from .models import NewsItem
+from .sanitize import scrub_external
 
 _logger = structlog.get_logger("rpm-mcp.news")
 
@@ -43,7 +44,7 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
                 _logger.warning("bodhi_http", status=resp.status_code)
                 return items
             for u in resp.json().get("updates", []):
-                title = u.get("title") or ""
+                title = scrub_external(u.get("title") or "")
                 if not title:
                     continue
                 items.append(NewsItem(
@@ -51,7 +52,7 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
                     source="bodhi",
                     item_type=u.get("type"),
                     importance=_classify_bodhi(u),
-                    content=u.get("notes"),
+                    content=scrub_external(u.get("notes") or "") or None,
                     url=u.get("url"),
                     date=datetime.now(UTC),
                     package_name=_pkg_from_title(title),
@@ -81,7 +82,7 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
                 desc_m = _DESC_RE.search(raw)
                 if not title_m:
                     continue
-                title = title_m.group(1).strip()
+                title = scrub_external(title_m.group(1).strip())
                 pkg = "Tumbleweed" if ("Tumbleweed" in title or "Snapshot" in title) else None
                 importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
                 items.append(NewsItem(
@@ -89,7 +90,7 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
                     source="opensuse-rss",
                     item_type="snapshot" if pkg else "news",
                     importance=importance,
-                    content=desc_m.group(1).strip() if desc_m else None,
+                    content=scrub_external(desc_m.group(1).strip()) if desc_m else None,
                     url=link_m.group(1).strip() if link_m else None,
                     date=datetime.now(UTC),
                     package_name=pkg,

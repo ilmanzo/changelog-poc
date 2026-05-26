@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 
 from .models import ChangelogEntry
+from .sanitize import scrub_external
 
 _BLOCK_SPLIT = re.compile(r"^-{67}$", re.MULTILINE)
 
@@ -30,6 +31,7 @@ _VERSION_PATTERNS = [
 
 def parse_obs_changes(raw_text: str) -> list[ChangelogEntry]:
     """Parse an OBS .changes file into a list of ChangelogEntry objects."""
+    raw_text = scrub_external(raw_text)
     entries: list[ChangelogEntry] = []
 
     for block in _BLOCK_SPLIT.split(raw_text):

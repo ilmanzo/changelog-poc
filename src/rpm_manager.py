@@ -8,6 +8,7 @@ from datetime import datetime
 from async_lru import alru_cache
 
 from .models import ChangelogEntry, PackageMetadata
+from .sanitize import scrub_external
 
 
 class RPMManager:
@@ -79,6 +80,38 @@ class RPMManager:
         deps.discard(package_name)
         return frozenset(deps)
 
+    @alru_cache(maxsize=1)
+    async def list_installed_packages(self) -> list[str]:
+        """All package names installed in the local RPM database."""
+        stdout, _, rc = await self._exec("-qa", "--qf", "%{NAME}\n")
+        if rc != 0:
+            return []
+        return [line for line in stdout.splitlines() if line.strip()]
+
+    async def find_pattern_packages(self, pattern_name: str) -> list[str]:
+        """Resolve an openSUSE pattern name to its member package names."""
+        stdout, _, rc = await self._exec(
+            "-q", "--whatprovides", f"pattern():{pattern_name}", "--qf", "%{NAME}\n"
+        )
+        pattern_pkg: str | None = None
+        if rc == 0 and stdout.strip():
+            pattern_pkg = stdout.strip().splitlines()[0]
+        else:
+            for candidate in (
+                f"patterns-base-{pattern_name}",
+                f"patterns-openSUSE-{pattern_name}",
+                f"patterns-base",
+            ):
+                stdout, _, rc = await self._exec("-q", "--qf", "%{NAME}\n", "--", candidate)
+                if rc == 0 and stdout.strip():
+                    pattern_pkg = stdout.strip().splitlines()[0]
+                    break
+
+        if not pattern_pkg:
+            return []
+
+        return sorted(await self.get_dependencies(pattern_pkg))
+
     @alru_cache(maxsize=128)
     async def get_reverse_dependencies(self, package_name: str) -> frozenset[str]:
         out, err, rc = await self._exec("-q", "--provides", "--", package_name)
@@ -111,6 +144,7 @@ class RPMManager:
     @staticmethod
     def parse_changelog(raw_text: str) -> list[ChangelogEntry]:
         """Parse RPM ``--changelog`` output into ChangelogEntry list."""
+        raw_text = scrub_external(raw_text)
         entries = RPMManager._parse_header_blocks(raw_text)
         RPMManager._backfill_missing_versions(entries)
         return entries
