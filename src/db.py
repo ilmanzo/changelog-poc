@@ -247,20 +247,6 @@ class Database:
         self, query: str, limit: int = 10, since: datetime | None = None
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            if since is not None:
-                return await conn.fetch(
-                    """
-                    SELECT p.name AS package, ce.version, ce.entry_date, ce.content,
-                           ts_rank(ce.tsv, plainto_tsquery('english', $1)) AS rank
-                    FROM changelog_entries ce
-                    JOIN packages p ON p.id = ce.package_id
-                    WHERE ce.tsv @@ plainto_tsquery('english', $1)
-                      AND ce.entry_date >= $3
-                    ORDER BY rank DESC
-                    LIMIT $2
-                    """,
-                    query, limit, since,
-                )
             return await conn.fetch(
                 """
                 SELECT p.name AS package, ce.version, ce.entry_date, ce.content,
@@ -268,10 +254,11 @@ class Database:
                 FROM changelog_entries ce
                 JOIN packages p ON p.id = ce.package_id
                 WHERE ce.tsv @@ plainto_tsquery('english', $1)
+                  AND ($3::timestamptz IS NULL OR ce.entry_date >= $3)
                 ORDER BY rank DESC
                 LIMIT $2
                 """,
-                query, limit,
+                query, limit, since,
             )
 
     async def _fetch_text_search(
@@ -443,23 +430,15 @@ class Database:
         self, package_name: str | None = None, limit: int = 10
     ) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
-            if package_name:
-                return await conn.fetch(
-                    """
-                    SELECT n.title, n.source, n.item_type, n.importance, n.content, n.url, n.item_date
-                    FROM news n
-                    JOIN packages p ON p.id = n.package_id
-                    WHERE p.name = $1
-                    ORDER BY n.item_date DESC LIMIT $2
-                    """,
-                    package_name, limit,
-                )
             return await conn.fetch(
                 """
-                SELECT title, source, item_type, importance, content, url, item_date
-                FROM news ORDER BY item_date DESC LIMIT $1
+                SELECT n.title, n.source, n.item_type, n.importance, n.content, n.url, n.item_date
+                FROM news n
+                LEFT JOIN packages p ON p.id = n.package_id
+                WHERE ($1::text IS NULL OR p.name = $1)
+                ORDER BY n.item_date DESC LIMIT $2
                 """,
-                limit,
+                package_name, limit,
             )
 
     async def upsert_openqa(self, tests: Iterable[OpenQATest]) -> int:
@@ -610,26 +589,15 @@ class Database:
         omitted). If None, return all rows in the manifest.
         """
         async with self.pool.acquire() as conn:
-            if package_names:
-                rows = await conn.fetch(
-                    """
-                    SELECT p.name, m.synced_at,
-                           EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
-                    FROM manifest m
-                    JOIN packages p ON p.id = m.package_id
-                    WHERE p.name = ANY($1::text[])
-                    ORDER BY m.synced_at ASC
-                    """,
-                    package_names,
-                )
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT p.name, m.synced_at,
-                           EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
-                    FROM manifest m
-                    JOIN packages p ON p.id = m.package_id
-                    ORDER BY m.synced_at ASC
-                    """,
-                )
+            rows = await conn.fetch(
+                """
+                SELECT p.name, m.synced_at,
+                       EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
+                FROM manifest m
+                JOIN packages p ON p.id = m.package_id
+                WHERE ($1::text[] IS NULL OR p.name = ANY($1::text[]))
+                ORDER BY m.synced_at ASC
+                """,
+                package_names,
+            )
         return [dict(r) for r in rows]
