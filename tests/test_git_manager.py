@@ -43,9 +43,12 @@ def test_safe_repo_path_valid(tmp_path: Path) -> None:
     assert path == tmp_path / "mypkg"
 
 
-@pytest.mark.parametrize("name", ["../evil", "../../etc/passwd", "."], ids=["dotdot", "deep", "dot"])
+@pytest.mark.parametrize(
+    "name", ["../evil", "../../etc/passwd", ".", "foo/bar", "evil;rm", "x y"],
+    ids=["dotdot", "deep", "dot", "slash", "semicolon", "space"],
+)
 def test_safe_repo_path_traversal_raises(name: str, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="traversal|Path"):
+    with pytest.raises(ValueError, match="traversal|Path|Invalid package"):
         _gm(tmp_path)._safe_repo_path(name)
 
 

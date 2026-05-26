@@ -11,6 +11,7 @@ import structlog
 from async_lru import alru_cache
 
 from .config import settings
+from .ingest import validate_package_name
 from .process import run_subprocess
 
 _ALLOWED_SCHEMES = {"https", "git"}
@@ -32,6 +33,7 @@ class GitManager:
                             note="git:// has no transport encryption or auth")
 
     def _safe_repo_path(self, package_name: str) -> Path:
+        validate_package_name(package_name)
         repo_path = (self.cache_dir / package_name).resolve()
         cache_root = self.cache_dir.resolve()
         if not repo_path.is_relative_to(cache_root) or repo_path == cache_root:
