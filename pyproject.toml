@@ -63,7 +63,6 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 markers = [
     "e2e: integration tests requiring a container engine (docker/podman socket)",
-    "llm: tests requiring LLM proxy at localhost:11438",
     "network: tests that fetch from OBS, Pagure, or RSS feeds",
 ]
 addopts = "-m 'not e2e'"

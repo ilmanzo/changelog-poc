@@ -38,7 +38,6 @@ PYTHONPATH=. uv run mypy src mcp_server.py         # type check
 ## External services expected at runtime
 
 - **PostgreSQL with pgvector + pg_trgm** at `DATABASE_URL` — required for everything.
-- **LLM HTTP proxy at `LLM_BASE_URL`** (default `http://localhost:11438`) — OpenAI-compatible `/v1/chat/completions`. Required only by LLM-backed tools: `analyze_package`, `modernize_package`, `explain_build`, news classification.
 
 ## Architecture
 
@@ -98,10 +97,8 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 - **`src/ingest.py`** — `IngestService(registry, db, embedder)`: fetch → embed → upsert. Shared by the MCP `sync_package` tool, `scripts/ingest.py`, and `scripts/worker.py`.
 - **`src/sources/`** — see registry table above.
 - **`src/spec_parser.py`** — `python-specfile` AST → `SpecSection[]`. Chunking happens in the ingest pipeline, not here.
-- **`src/modernize.py`** — 10 regex patterns for deprecated macros (ported verbatim from rpm-spec-assistant).
 - **`src/git_manager.py`** — shallow clone (`--depth 50`), tag lookup with `cat-file` verification, `@alru_cache`, LRU disk eviction.
 - **`src/rpm_manager.py`** — `rpm -q` subprocess wrapper for local-only data (changelogs, deps, rdeps).
-- **`src/llm.py`** — async HTTP client for the local LLM proxy.
 - **`scripts/worker.py`** — centralised ingestion daemon (cron / systemd timer). Each end-user runs only the MCP server; bulk ingestion runs once on a maintenance host.
 
 ### Key design decisions
@@ -129,9 +126,6 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 | `semantic_search(query, limit)` | 1 | pgvector cosine over `changelog_entries.embedding` |
 | `fts_search(query, limit, since)` | 1 | tsvector over `changelog_entries.tsv`, optional date filter |
 | `get_spec_details(pkg, source)` | 2 | AST sections via `python-specfile` |
-| `modernize_package(pkg)` | 2 | regex match + LLM rewrite |
-| `explain_build(pkg, source)` | 2 | LLM walk-through of `%prep`/`%build`/`%install`/`%check` |
-| `analyze_package(question, pkg)` | 2 | LLM Q&A grounded on stored spec |
 | `get_news(pkg, limit)` | 3 | from `news` table |
 | `get_openqa_tests(pkg)` | 3 | from `openqa_tests` table |
 
@@ -139,7 +133,7 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 
 - Phase 0 — scaffold: ✓
 - Phase 1 — changelog parity with changelog-poc: ✓ (all 8 tools wired to Postgres)
-- Phase 2 — spec assistant features: ✓ (get_spec_details, modernize_package, explain_build, analyze_package)
+- Phase 2 — spec assistant features: ✓ (get_spec_details only; LLM-backed tools dropped — MCP clients have their own LLM)
 - Phase 3 — news + openQA: ✓ (get_news, get_openqa_tests)
 - Phase 4 — centralised worker + bench tuning
 - Phase 4.5 — unit tests + coverage: ✓ (181 tests, 73% coverage; see plan.md)
@@ -171,5 +165,5 @@ E2E tests via gemini-cli: `tests/test_e2e_gemini.py` — testcontainers Postgres
 
 - **Deployment**: local stdio per user, shared Postgres — no SSE, no auth
 - **Source failure**: serve stale cached data with `⚠ fetch failed, data from <timestamp>` warning
-- **LLM failure**: tenacity retry (3×, exponential backoff), then raise error
+- **LLM tooling**: server has no embedded LLM — MCP client (Claude/gemini-cli) provides reasoning on raw data returned by tools
 - **Out of scope**: auth, TLS, Prometheus, Containerfile

@@ -32,8 +32,6 @@ All settings are environment variables (shown with defaults):
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp` | Matches infra defaults |
-| `LLM_BASE_URL` | `http://localhost:11438` | OpenAI-compatible proxy; only needed for LLM tools |
-| `LLM_MODEL` | `microsoft_Phi-4-mini-instruct-Q4_K_M.gguf` | Model for `analyze_package`, `explain_build`, etc. |
 | `LOG_FORMAT` | `text` | `text` or `json` |
 | `FETCH_STRATEGY` | `waterfall` | `waterfall` or `parallel` |
 
@@ -104,28 +102,11 @@ uv run scripts/bench.py both
 | `semantic_search` | pgvector cosine similarity search |
 | `fts_search` | Full-text search |
 | `get_spec_details` | RPM spec file sections |
-| `analyze_package` | LLM Q&A on spec |
-| `explain_build` | LLM walkthrough of build stages |
-| `modernize_package` | Detect + rewrite deprecated macros |
 | `get_news` | Bodhi + RSS news for a package |
 | `get_openqa_tests` | openQA test mappings |
 | `sync_package` | Force re-ingest a package |
 
-> Tools marked with "LLM" require a running OpenAI-compatible proxy at `LLM_BASE_URL`.
-
 ## Security
-
-### LLM proxy must not expose tool-use / function-calling
-
-`ask_llm` feeds untrusted third-party content (OBS changelogs, spec files, news) into the model as CONTEXT. The proxy at `LLM_BASE_URL` **must be configured with tool-use / function-calling disabled**, otherwise an injected instruction inside a malicious package's changelog could trigger side-effectful tool calls on the host running the proxy.
-
-Concretely:
-- llama.cpp / llama-server: do not pass `--chat-template tool-calling` or any function-calling flag
-- vLLM: do not enable `--enable-auto-tool-choice`
-- Ollama: the default Modelfile has no tools — safe
-- Hosted providers: pick an endpoint that does not advertise tools
-
-The system prompt and nonce-fenced context (`src/llm.py`) reduce the prompt-injection blast radius but cannot prevent a tool-call-enabled proxy from executing maliciously-crafted instructions.
 
 ### External content sanitisation
 

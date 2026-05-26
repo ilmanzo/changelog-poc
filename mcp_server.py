@@ -29,10 +29,8 @@ from src.config import settings
 from src.db import Database
 from src.git_manager import GitManager
 from src.ingest import IngestService, IngestStatus, validate_package_name
-from src.llm import ask_llm
 from src.logging_config import configure_logging
 from src.models import ChangelogEntry
-from src.modernize import check_modernization
 from src.news_fetcher import fetch_all_news
 from src.openqa_fetcher import scan_tests  # noqa: F401  (re-exported for worker use)
 from src.rpm_manager import RPMManager
@@ -739,90 +737,6 @@ async def get_spec_details(package: str, source: str = "opensuse") -> str:
             continue
         lines.append(f"\n## {name}\n{body}")
     return "\n".join(lines)
-
-
-@mcp.tool()
-@_tool_wrapper("modernize_package")
-async def modernize_package(package: str, source: str = "opensuse") -> str:
-    """Scan *package*'s .spec for deprecated macros and ask the LLM for a refactor."""
-    validate_package_name(package)
-    if source not in _SPEC_SOURCES:
-        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
-    out = await _ensure_spec(package, source)
-    if out is None:
-        return f"No {source} spec found for {package}."
-    _, _, content, _ = out
-
-    suggestions = check_modernization(content)
-    _tlog(suggestions=len(suggestions))
-    if not suggestions:
-        return f"No deprecated macros found in {package} ({source})."
-
-    header = [f"Found {len(suggestions)} suggestion(s) for {package}:"]
-    for s in suggestions:
-        replacement = s.replacement if s.replacement is not None else "(remove)"
-        header.append(
-            f"  L{s.line}: {s.content}\n"
-            f"      pattern  : {s.pattern}\n"
-            f"      replace  : {replacement}\n"
-            f"      reason   : {s.description}"
-        )
-
-    context = (
-        f"Spec file for {package}:\n```\n{content}\n```\n\n"
-        "Findings:\n" + "\n".join(
-            f"- L{s.line} `{s.content}` — {s.description}" for s in suggestions
-        )
-    )
-    answer = await ask_llm(
-        "Rewrite this spec file applying the suggested modernizations. "
-        "Show only the changed sections.",
-        context,
-    )
-    return "\n".join(header) + "\n\n--- LLM rewrite ---\n" + answer
-
-
-@mcp.tool()
-@_tool_wrapper("explain_build")
-async def explain_build(package: str, source: str = "opensuse") -> str:
-    """LLM walk-through of the %prep / %build / %install / %check sections."""
-    validate_package_name(package)
-    if source not in _SPEC_SOURCES:
-        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
-    out = await _ensure_spec(package, source)
-    if out is None:
-        return f"No {source} spec found for {package}."
-    _, _, content, _ = out
-
-    sections = extract_sections(content)
-    wanted = {"%prep", "%build", "%install", "%check"}
-    relevant = {k: v for k, v in sections.items() if k in wanted and v.strip()}
-    _tlog(sections=len(relevant))
-    if not relevant:
-        return f"No build sections found in {package} spec."
-
-    context = "\n\n".join(f"## {name}\n{body}" for name, body in relevant.items())
-    answer = await ask_llm(
-        "Explain step-by-step what this package's build pipeline does. "
-        "Cover %prep, %build, %install, %check.",
-        context,
-    )
-    return f"Build walkthrough for {package} ({source}):\n\n{answer}"
-
-
-@mcp.tool()
-@_tool_wrapper("analyze_package")
-async def analyze_package(question: str, package: str, source: str = "opensuse") -> str:
-    """LLM Q&A grounded on *package*'s stored spec (any source)."""
-    validate_package_name(package)
-    if source not in _SPEC_SOURCES:
-        return MSG_UNKNOWN_SPEC_SOURCE.format(source)
-    out = await _ensure_spec(package, source)
-    if out is None:
-        return f"No {source} spec found for {package}."
-    _, _, content, _ = out
-    _tlog(q_chars=len(question))
-    return await ask_llm(question, f"Spec for {package}:\n{content}")
 
 
 # ---------------------------------------------------------------------------

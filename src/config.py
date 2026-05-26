@@ -42,11 +42,6 @@ class Settings(BaseSettings):
     obs_timeout_connect: int = 10
     obs_max_retries: int = 3
 
-    # LLM proxy (Phi-4-mini or compatible OpenAI-style endpoint)
-    llm_base_url: str = "http://localhost:11438"
-    llm_model: str = "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf"
-    llm_timeout: float = 60.0
-
     # Worker (centralised ingestion)
     worker_concurrency: int = 10
 

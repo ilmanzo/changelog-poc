@@ -20,13 +20,12 @@ backends from the legacy changelog-poc and rpm-spec-assistant projects.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                        mcp_server.py  (FastMCP)                             │
 │                                                                             │
-│   17 tools  ─  analyze_package_diff, get_recent_releases,                  │
+│   14 tools  ─  analyze_package_diff, get_recent_releases,                  │
 │               get_changes_in_range, find_cve, list_cves,                   │
 │               get_dependencies, get_reverse_dependencies,                   │
 │               get_dependency_changes, sync_package,                         │
 │               semantic_search, fts_search,                                  │
-│               get_spec_details, modernize_package,                          │
-│               explain_build, analyze_package,                               │
+│               get_spec_details,                                             │
 │               get_news, get_openqa_tests                                    │
 │                                                                             │
 │   Lifespan:  Database.connect() → yield → source_registry.close()          │
@@ -37,19 +36,19 @@ backends from the legacy changelog-poc and rpm-spec-assistant projects.
 ┌─────────────┐ ┌──────────────────┐        ┌────────────────────┐
 │  Database   │ │  IngestService   │        │    RPMManager /    │
 │  (src/db.py)│ │  (src/ingest.py) │        │    GitManager      │
-│             │ │                  │        │    LLM client      │
-│  asyncpg    │ │  fetch → embed → │        │                    │
-│  pool +     │ │  upsert          │        │  rpm_manager.py:   │
-│  pgvector   │ │                  │        │  rpm -q subprocess │
-│  codec      │ └────────┬─────────┘        │                    │
-└──────┬──────┘          │                  │  git_manager.py:   │
-       │                 ▼                  │  shallow clone,    │
-       │         ┌──────────────────┐       │  tag lookup        │
-       │         │  SourceRegistry  │       │                    │
-       │         │  (src/sources/)  │       │  llm.py:           │
-       │         │                  │       │  OpenAI-compat.    │
-       │         │  waterfall |     │       │  HTTP proxy        │
-       │         │  parallel        │       └────────────────────┘
+│             │ │                  │        │                    │
+│  asyncpg    │ │  fetch → embed → │        │  rpm_manager.py:   │
+│  pool +     │ │  upsert          │        │  rpm -q subprocess │
+│  pgvector   │ │                  │        │                    │
+│  codec      │ └────────┬─────────┘        │  git_manager.py:   │
+└──────┬──────┘          │                  │  shallow clone,    │
+       │                 ▼                  │  tag lookup        │
+       │         ┌──────────────────┐       │                    │
+       │         │  SourceRegistry  │       └────────────────────┘
+       │         │  (src/sources/)  │
+       │         │                  │
+       │         │  waterfall |     │
+       │         │  parallel        │
        │         └──┬───────┬───────┘
        │            │       │
        │   ┌────────┘       └────────────┐
@@ -201,7 +200,6 @@ Fetch strategy (env `FETCH_STRATEGY`):
 | Vector search | pgvector HNSW index, cosine distance (`<=>`) |
 | Dedup | `uuid5(PKG_NAMESPACE, package + content)` — stable across sources |
 | Storage | `asyncpg` connection pool (min/max via `PG_POOL_MIN/MAX_SIZE`) |
-| LLM | OpenAI-compatible HTTP proxy at `LLM_BASE_URL` (default `localhost:11438`) |
 | Logging | `structlog` — `LOG_FORMAT=json` for production |
 
 ---
@@ -247,7 +245,6 @@ Fetch strategy (env `FETCH_STRATEGY`):
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp` | asyncpg DSN |
-| `LLM_BASE_URL` | `http://localhost:11438` | OpenAI-compatible LLM proxy |
 | `FETCH_STRATEGY` | `waterfall` | `waterfall` or `parallel` |
 | `CACHE_TTL_SECONDS` | `604800` | Manifest freshness TTL (1 week) |
 | `CACHE_MAX_ENTRIES` | `1000` | Max changelog entries fetched per package |

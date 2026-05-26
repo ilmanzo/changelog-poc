@@ -1,11 +1,11 @@
 """
 E2E tests for rpm-mcp MCP server using gemini-cli as the test client.
 
-Covers all six query categories a packaging engineer would use:
+Covers six query categories a packaging engineer would use:
   1. Changelog / version tracking
   2. Security / CVE
   3. Dependency analysis
-  4. Spec / build understanding  (network, some also need LLM)
+  4. Spec understanding (network)
   5. News + package intelligence (network)
   6. Semantic / fuzzy search
 
@@ -16,17 +16,13 @@ Run all e2e tests:
     export DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock
     PYTHONPATH=. uv run pytest tests/test_e2e_gemini.py -v -m e2e
 
-Run without LLM-dependent tests:
-    PYTHONPATH=. uv run pytest tests/test_e2e_gemini.py -v -m "e2e and not llm"
-
 Run without network-dependent tests:
-    PYTHONPATH=. uv run pytest tests/test_e2e_gemini.py -v -m "e2e and not network and not llm"
+    PYTHONPATH=. uv run pytest tests/test_e2e_gemini.py -v -m "e2e and not network"
 
 Requirements:
     - gemini CLI installed and authenticated
     - container engine (docker/podman socket) for testcontainers
     - vim and curl installed locally (standard on openSUSE Tumbleweed)
-    - For @pytest.mark.llm tests: LLM proxy at localhost:11438
     - For @pytest.mark.network tests: internet access (OBS, Pagure, RSS feeds)
 
 openQA tests (get_openqa_tests tool) require a local os-autoinst-distri-opensuse
@@ -40,7 +36,6 @@ import os
 import subprocess
 from pathlib import Path
 
-import httpx
 import pytest
 from testcontainers.postgres import PostgresContainer
 
@@ -85,16 +80,6 @@ def gemini_mcp(pg_dsn):
     yield MCP_SERVER_NAME
 
     GEMINI_SETTINGS.write_text(original)
-
-
-@pytest.fixture(scope="session")
-def llm_available() -> bool:
-    """True if the local LLM proxy at localhost:11438 is reachable."""
-    try:
-        r = httpx.get("http://localhost:11438/v1/models", timeout=3)
-        return r.status_code < 500
-    except Exception:
-        return False
 
 
 @pytest.fixture(scope="session")
@@ -405,32 +390,6 @@ def test_compare_spec_check_section_both_distros(gemini_mcp):
         f"Using the {MCP_SERVER_NAME} MCP server, call get_spec_details twice: "
         "once for package='vim', source='opensuse' and once for package='vim-enhanced', source='fedora'. "
         "Compare the %check section between the two. What are the differences?"
-    )
-    assert out.strip(), "gemini returned empty output"
-
-
-@pytest.mark.e2e
-@pytest.mark.network
-@pytest.mark.llm
-def test_modernize_package_vim(gemini_mcp, llm_available):
-    pytest.skip("LLM not available") if not llm_available else None
-    out = _gemini(
-        f"Call modernize_package from the {MCP_SERVER_NAME} MCP server "
-        "with package='vim' and source='opensuse'. What deprecated macros were found?",
-        timeout=240,
-    )
-    assert out.strip(), "gemini returned empty output"
-
-
-@pytest.mark.e2e
-@pytest.mark.network
-@pytest.mark.llm
-def test_explain_build_vim(gemini_mcp, llm_available):
-    pytest.skip("LLM not available") if not llm_available else None
-    out = _gemini(
-        f"Call explain_build from the {MCP_SERVER_NAME} MCP server "
-        "with package='vim' and source='opensuse'. Explain the build pipeline.",
-        timeout=240,
     )
     assert out.strip(), "gemini returned empty output"
 
