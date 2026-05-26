@@ -6,11 +6,11 @@ its own tool layer if/when needed.
 """
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 
 import httpx
 import structlog
+from defusedxml import ElementTree as DefusedET
 
 from .config import settings
 from .models import NewsItem
@@ -62,10 +62,17 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
     return items
 
 
-_ITEM_RE = re.compile(r"<item>(.*?)</item>", re.DOTALL)
-_TITLE_RE = re.compile(r"<title>(.*?)</title>", re.DOTALL)
-_LINK_RE = re.compile(r"<link>(.*?)</link>", re.DOTALL)
-_DESC_RE = re.compile(r"<description>(.*?)</description>", re.DOTALL)
+def _child_text(item: object, tag: str) -> str | None:
+    """Return the stripped text of *item*'s first child named *tag*, or None.
+
+    Tolerates namespaces by matching on local name suffix; RSS 2.0 uses bare
+    element names but openSUSE's feed may carry atom: prefixes.
+    """
+    for child in list(item):  # type: ignore[call-overload]
+        local = child.tag.rsplit("}", 1)[-1] if "}" in child.tag else child.tag
+        if local == tag and child.text:
+            return child.text.strip()
+    return None
 
 
 async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
@@ -76,13 +83,16 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
             if resp.status_code != 200:
                 _logger.warning("opensuse_news_http", status=resp.status_code)
                 return items
-            for raw in _ITEM_RE.findall(resp.text)[:limit]:
-                title_m = _TITLE_RE.search(raw)
-                link_m = _LINK_RE.search(raw)
-                desc_m = _DESC_RE.search(raw)
-                if not title_m:
+            root = DefusedET.fromstring(resp.text)
+            for entry in root.iter("item"):
+                if len(items) >= limit:
+                    break
+                title_raw = _child_text(entry, "title")
+                if not title_raw:
                     continue
-                title = scrub_external(title_m.group(1).strip())
+                title = scrub_external(title_raw)
+                desc_raw = _child_text(entry, "description")
+                link_raw = _child_text(entry, "link")
                 pkg = "Tumbleweed" if ("Tumbleweed" in title or "Snapshot" in title) else None
                 importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
                 items.append(NewsItem(
@@ -90,8 +100,8 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
                     source="opensuse-rss",
                     item_type="snapshot" if pkg else "news",
                     importance=importance,
-                    content=scrub_external(desc_m.group(1).strip()) if desc_m else None,
-                    url=link_m.group(1).strip() if link_m else None,
+                    content=scrub_external(desc_raw) if desc_raw else None,
+                    url=link_raw,
                     date=datetime.now(UTC),
                     package_name=pkg,
                 ))

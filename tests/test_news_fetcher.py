@@ -154,6 +154,26 @@ async def test_fetch_opensuse_news_error_returns_empty(case: str) -> None:
     assert result == []
 
 
+_XXE_RSS = """<?xml version="1.0"?>
+<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<rss><channel>
+<item>
+  <title>Pwned &xxe;</title>
+  <link>https://x</link>
+  <description>boom</description>
+</item>
+</channel></rss>
+"""
+
+
+async def test_fetch_opensuse_news_rejects_xxe() -> None:
+    """defusedxml must refuse to resolve external entities; result is empty."""
+    mock = _mock_client(200, text=_XXE_RSS)
+    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+        result = await fetch_opensuse_news()
+    assert result == []
+
+
 # ---------------------------------------------------------------------------
 # fetch_all_news
 # ---------------------------------------------------------------------------
