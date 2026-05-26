@@ -5,6 +5,8 @@ splitting if the AST parser rejects the input (common with malformed specs).
 """
 from __future__ import annotations
 
+import tempfile
+
 import structlog
 from specfile import Specfile
 
@@ -21,14 +23,21 @@ _SECTION_TAGS = (
 
 
 def extract_sections(content: str) -> dict[str, str]:
-    """Section name → raw section content. Includes a synthetic 'header' preamble."""
+    """Section name → raw section content. Includes a synthetic 'header' preamble.
+
+    Why TemporaryDirectory: untrusted spec macros (e.g. ``%include``, ``%{load:..}``)
+    can resolve paths under ``sourcedir``. A fresh, isolated directory per call
+    blocks any cross-call interference and prevents accidental writes to the
+    shared ``/tmp``.
+    """
     content = scrub_external(content)
     try:
-        spec = Specfile(content=content, sourcedir="/tmp")
-        sections: dict[str, str] = {}
-        with spec.sections() as sc:
-            for section in sc:
-                sections[section.name] = "".join(section.data)
+        with tempfile.TemporaryDirectory(prefix="rpm-mcp-spec-") as sourcedir:
+            spec = Specfile(content=content, sourcedir=sourcedir)
+            sections: dict[str, str] = {}
+            with spec.sections() as sc:
+                for section in sc:
+                    sections[section.name] = "".join(section.data)
         header_lines: list[str] = []
         for line in content.splitlines():
             if line.startswith("%"):

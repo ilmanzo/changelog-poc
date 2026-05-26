@@ -1,6 +1,8 @@
 """Unit tests for src/spec_parser.py — pure text parsing, no mocking needed."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from src.spec_parser import _fallback_split, chunk_sections, extract_sections
@@ -135,3 +137,57 @@ def test_chunk_sections_preserves_content() -> None:
     sections = {"header": marker}
     chunks = chunk_sections(sections)
     assert any(marker in c.content for c in chunks)
+
+
+# --- S4: per-call TemporaryDirectory isolation ---
+
+
+def test_extract_sections_uses_isolated_tmpdir(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Specfile must receive a fresh tmpdir prefixed with rpm-mcp-spec- and
+    not the shared /tmp; the directory must be cleaned up after the call.
+    """
+    seen_sourcedirs: list[str] = []
+
+    class _FakeSpecfile:
+        def __init__(self, *, content: str, sourcedir: str) -> None:
+            seen_sourcedirs.append(sourcedir)
+            self.sourcedir = sourcedir
+            self._content = content
+
+        def sections(self):
+            class _Ctx:
+                def __enter__(self_inner):
+                    return []  # empty list of sections is fine for the test
+                def __exit__(self_inner, *a):
+                    return False
+            return _Ctx()
+
+    monkeypatch.setattr("src.spec_parser.Specfile", _FakeSpecfile)
+    extract_sections("Name: testpkg\nVersion: 1.0\n%description\nx\n")
+
+    assert len(seen_sourcedirs) == 1
+    sd = seen_sourcedirs[0]
+    assert os.path.basename(sd).startswith("rpm-mcp-spec-")
+    assert sd != "/tmp"
+    # Directory must be cleaned up after the context manager exits
+    assert not os.path.exists(sd)
+
+
+def test_extract_sections_uses_fresh_tmpdir_each_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    class _FakeSpecfile:
+        def __init__(self, *, content: str, sourcedir: str) -> None:
+            seen.append(sourcedir)
+        def sections(self):
+            class _Ctx:
+                def __enter__(self_inner): return []
+                def __exit__(self_inner, *a): return False
+            return _Ctx()
+
+    monkeypatch.setattr("src.spec_parser.Specfile", _FakeSpecfile)
+    extract_sections("Name: a\n")
+    extract_sections("Name: b\n")
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1]
