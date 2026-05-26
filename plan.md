@@ -701,7 +701,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 6 | P2 + DD3 — Stale-data fallback + banner ✅ (commit 0db5447) | User-visible reliability win |
 | 7 | DD10 + N3 — Fast-fail ingest + coalescing ✅ | UX win for search tools; needed before R1 to bake into all tool sigs |
 | 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE ✅ | Unblocks all future tool additions |
-| 9 | R3 — Shared subprocess helper | Prep for worker daemon |
+| 9 | R3 — Shared subprocess helper ✅ | Prep for worker daemon |
 | 10 | R2 + DD11 — Single-query SQL dedup | Cleanup before more tools land |
 | 11 | R4 + DD4 — Spec source unification (option b) | Schema-neutral; finishes source ABC story |
 | 12 | DD9 — Drop `get_news` refresh flag | Trivial, ride alongside worker introduction |

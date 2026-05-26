@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from async_lru import alru_cache
 
 from .config import settings
+from .process import run_subprocess
 
 _ALLOWED_SCHEMES = {"https", "git", "http"}
 
@@ -53,19 +54,7 @@ class GitManager:
         await asyncio.to_thread(_evict)
 
     async def _exec(self, cwd: Path, *args: str) -> tuple[str, str, int]:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            *args,
-            cwd=str(cwd),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        return (
-            stdout.decode("utf-8", errors="ignore").strip(),
-            stderr.decode("utf-8", errors="ignore").strip(),
-            proc.returncode or 0,
-        )
+        return await run_subprocess("git", *args, cwd=cwd)
 
     async def ensure_repo(self, url: str, package_name: str) -> Path:
         self._validate_url(url)
@@ -84,14 +73,11 @@ class GitManager:
         return repo_path
 
     async def _clone(self, url: str, path: Path) -> None:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "clone", "--depth", "50", "--no-single-branch", url, str(path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        _, stderr, rc = await run_subprocess(
+            "git", "clone", "--depth", "50", "--no-single-branch", url, str(path)
         )
-        _, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            raise RuntimeError(f"Git clone failed for {url}: {stderr.decode('utf-8', errors='ignore')}")
+        if rc != 0:
+            raise RuntimeError(f"Git clone failed for {url}: {stderr}")
 
     @alru_cache(maxsize=256)
     async def get_logs_between_timestamps(self, repo_path: Path, start: datetime, end: datetime) -> str:

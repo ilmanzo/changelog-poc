@@ -1,13 +1,13 @@
 """Local RPM database access — query metadata + parse changelogs."""
 from __future__ import annotations
 
-import asyncio
 import re
 from datetime import datetime
 
 from async_lru import alru_cache
 
 from .models import ChangelogEntry, PackageMetadata
+from .process import run_subprocess
 from .sanitize import scrub_external
 
 
@@ -18,18 +18,7 @@ class RPMManager:
         self.rpm_binary = rpm_binary
 
     async def _exec(self, *args: str) -> tuple[str, str, int]:
-        proc = await asyncio.create_subprocess_exec(
-            self.rpm_binary,
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        return (
-            stdout.decode("utf-8", errors="ignore").strip(),
-            stderr.decode("utf-8", errors="ignore").strip(),
-            proc.returncode or 0,
-        )
+        return await run_subprocess(self.rpm_binary, *args)
 
     @alru_cache(maxsize=128)
     async def get_metadata(self, package_name: str) -> PackageMetadata:
