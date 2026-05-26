@@ -24,12 +24,13 @@ async def _get_model() -> TextEmbedding:
         return _model
     async with _lock:
         if _model is None:
-            kwargs = {}
-            if settings.embedding_model:
-                kwargs["model_name"] = settings.embedding_model
             _logger.info("loading_embedding_model", model=settings.embedding_model or "<default>")
             # fastembed downloads on first use and caches under ~/.cache.
-            _model = TextEmbedding(**kwargs)
+            _model = (
+                TextEmbedding(model_name=settings.embedding_model)
+                if settings.embedding_model
+                else TextEmbedding()
+            )
         return _model
 
 
