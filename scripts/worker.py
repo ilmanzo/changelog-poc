@@ -22,22 +22,15 @@ from pathlib import Path
 import structlog
 
 from src.config import settings
-from src.db import Database
 from src.ingest import IngestResult, IngestService, IngestStatus
 from src.logging_config import configure_logging
 from src.news_fetcher import fetch_all_news
 from src.openqa_fetcher import scan_tests
-from src.rpm_manager import RPMManager
-from src.sources import (
-    FetchStrategy,
-    GiteaSource,
-    ObsSource,
-    RpmSource,
-    SourceRegistry,
-)
+from src.process import run_subprocess
+from src.runtime import db, ingest_service, lifespan, rpm_mgr
 
 
-async def _load_packages(args: argparse.Namespace, rpm_mgr: RPMManager) -> list[str]:
+async def _load_packages(args: argparse.Namespace) -> list[str]:
     if args.file:
         pkgs = []
         for raw in args.file.read_text().splitlines():
@@ -45,13 +38,8 @@ async def _load_packages(args: argparse.Namespace, rpm_mgr: RPMManager) -> list[
             if line:
                 pkgs.append(line)
         return pkgs
-    # fall back to locally installed packages
-    proc = await asyncio.create_subprocess_exec(
-        rpm_mgr.rpm_binary, "-qa", "--qf", "%{NAME}\n",
-        stdout=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    return sorted({line.strip() for line in stdout.decode().splitlines() if line.strip()})
+    stdout, _, _ = await run_subprocess(rpm_mgr.rpm_binary, "-qa", "--qf", "%{NAME}\n")
+    return sorted({line.strip() for line in stdout.splitlines() if line.strip()})
 
 
 async def _ingest_batch(
@@ -66,55 +54,31 @@ async def _ingest_batch(
     return await asyncio.gather(*(_one(p) for p in packages))
 
 
-async def _refresh_news(db: Database) -> int:
-    items = await fetch_all_news(limit=50)
-    return await db.upsert_news(items)
-
-
-async def _refresh_openqa(db: Database, repo_path: Path) -> int:
-    tests = scan_tests(repo_path)
-    return await db.upsert_openqa(tests)
-
-
-async def _sweep_stale(db: Database) -> list[str]:
-    return await db.evict_stale(settings.cache_ttl_seconds)
-
-
 async def _run(args: argparse.Namespace) -> int:
     log = structlog.get_logger("worker")
-    db = Database()
-    await db.connect()
-    rpm_mgr = RPMManager()
-    registry = SourceRegistry(
-        sources=[RpmSource(rpm_mgr), ObsSource(), GiteaSource()],
-        strategy=FetchStrategy(settings.fetch_strategy),
-    )
-    service = IngestService(registry, db)
-
-    try:
+    async with lifespan(None):
         if args.sweep:
-            evicted = await _sweep_stale(db)
+            evicted = await db.evict_stale(settings.cache_ttl_seconds)
             log.info("ttl_sweep", evicted=len(evicted))
 
         if args.news or args.all:
-            n = await _refresh_news(db)
-            log.info("news_refreshed", inserted=n)
+            items = await fetch_all_news(limit=50)
+            inserted = await db.upsert_news(items)
+            log.info("news_refreshed", inserted=inserted)
 
         if args.openqa:
-            n = await _refresh_openqa(db, args.openqa)
-            log.info("openqa_refreshed", inserted=n)
+            tests = scan_tests(args.openqa)
+            inserted = await db.upsert_openqa(tests)
+            log.info("openqa_refreshed", inserted=inserted)
 
         if args.packages_path_provided or args.all:
-            pkgs = await _load_packages(args, rpm_mgr)
+            pkgs = await _load_packages(args)
             log.info("ingest_start", count=len(pkgs), concurrency=args.concurrency)
-            results = await _ingest_batch(service, pkgs, args.concurrency)
+            results = await _ingest_batch(ingest_service, pkgs, args.concurrency)
             indexed = sum(1 for r in results if r.status is IngestStatus.INDEXED)
             empty = sum(1 for r in results if r.status is IngestStatus.EMPTY)
             invalid = sum(1 for r in results if r.status is IngestStatus.INVALID)
             log.info("ingest_done", indexed=indexed, empty=empty, invalid=invalid)
-    finally:
-        await registry.close()
-        await db.close()
     return 0
 
 

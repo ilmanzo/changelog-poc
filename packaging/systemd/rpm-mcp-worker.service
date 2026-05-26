@@ -1,0 +1,20 @@
+[Unit]
+Description=rpm-mcp ingestion worker (single pass)
+Documentation=https://github.com/manzini/rpm-mcp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/rpm-mcp
+EnvironmentFile=-%h/.config/rpm-mcp/worker.env
+ExecStart=%h/.local/bin/uv run scripts/worker.py --all --sweep
+StandardOutput=journal
+StandardError=journal
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=2h
+
+[Install]
+WantedBy=default.target
