@@ -1,4 +1,4 @@
-# Plan: Phase 4.5 — Unit Tests + Coverage ✓ COMPLETE
+# Plan: Phase 4.5 — Unit Tests + Coverage [DONE]
 
 > **2026-05-26 — Superseded items.** The 3 LLM-backed tools (`analyze_package`,
 > `modernize_package`, `explain_build`) and `src/llm.py` / `src/modernize.py`
@@ -422,7 +422,7 @@ Decisions made during pre-Phase-6 review. These shape Phase 5+ implementation an
 |---|---|---|---|
 | DD1 | Deployment | **Stdio per user only.** Drop SSE entirely — remove dead `MCP_TRANSPORT=sse` branch in `mcp_server.py:1086-1088`. | Phase 5; mcp_server.py CLI |
 | DD2 | LLM failure contract | **Raise typed `LLMError`** after tenacity retries exhausted. Tool wrapper formats user-facing message. Changes `ask_llm() -> str` signature. | P1, src/llm.py, 4 callers |
-| DD3 | Stale-data UX | **Prefix banner** in tool text: `⚠ Source fetch failed; data from <ISO ts>\n\n<body>`. Detected via new `IngestStatus.STALE`. | P2, IngestService, tool wrapper |
+| DD3 | Stale-data UX | **Prefix banner** in tool text: `WARNING: source fetch failed; serving cached data from <ISO ts>\n\n<body>`. Detected via new `IngestStatus.STALE`. | P2, IngestService, tool wrapper |
 | DD4 | Spec source unification | **Option (b): add `fetch_spec` capability to `Source` ABC.** Fold `fetch_obs_spec` / `fetch_pagure_spec` into `ObsSource` / new `PagureSource`. Registry dispatches by capability. `_SPEC_SOURCES` dict in `mcp_server.py:688-691` goes away. | R4, src/sources/, src/spec_fetcher.py (delete) |
 | DD5 | Tool wiring after R1 | **`register(mcp)` function per module.** Each `src/tools/*.py` exports `def register(mcp: FastMCP) -> None` that decorates and binds. `mcp_server.py` calls each `register()` explicitly. No import-time side effects, no shared singleton. | R1, src/tools/* |
 | DD6 | Worker schedule | **systemd user `.timer` unit.** Worker exits after one pass; timer fires every N hours. Per-failure backoff via systemd; logs via journalctl. | Phase 5 worker |
@@ -571,7 +571,7 @@ CLAUDE.md mandates "tenacity retry (3×, exponential backoff), then raise error.
 
 **Action:**
 - In `IngestService.ingest`: on `EMPTY`/`SourceError`, check `db.fetch_entries(pkg_id)`; if non-empty, return new status `IngestStatus.STALE` with cached entries.
-- Tool wrappers in `mcp_server.py` prepend `⚠ fetch failed, serving data from <timestamp>` when status is `STALE`.
+- Tool wrappers in `mcp_server.py` prepend `WARNING: source fetch failed; serving cached data from <timestamp>` when status is `STALE`.
 
 #### P3 — Postgres startup retry (`src/db.py:42-60`) [MED]
 
@@ -698,14 +698,14 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 3 | B1 — 4-char timezone fix | Silent data loss in current ingestion |
 | 4 | S1 — SQL builder hardening | Easy fix, removes future-injection risk |
 | 5 | S4 — `Specfile` tmpdir | Untrusted-content fix, isolated change |
-| 6 | P2 + DD3 — Stale-data fallback + banner ✅ (commit 0db5447) | User-visible reliability win |
-| 7 | DD10 + N3 — Fast-fail ingest + coalescing ✅ | UX win for search tools; needed before R1 to bake into all tool sigs |
-| 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE ✅ | Unblocks all future tool additions |
-| 9 | R3 — Shared subprocess helper ✅ | Prep for worker daemon |
-| 10 | R2 + DD11 — Single-query SQL dedup ✅ | Cleanup before more tools land |
-| 11 | R4 + DD4 — Spec source unification (option b) ✅ | Schema-neutral; finishes source ABC story |
-| 12 | DD9 — Drop `get_news` refresh flag ✅ | Trivial, ride alongside worker introduction |
-| 13 | N5 + N6 + DD6 — Worker daemon + systemd units ✅ | Phase 4/5 production work |
+| 6 | P2 + DD3 — Stale-data fallback + banner [done] (commit 0db5447) | User-visible reliability win |
+| 7 | DD10 + N3 — Fast-fail ingest + coalescing [done] | UX win for search tools; needed before R1 to bake into all tool sigs |
+| 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE [done] | Unblocks all future tool additions |
+| 9 | R3 — Shared subprocess helper [done] | Prep for worker daemon |
+| 10 | R2 + DD11 — Single-query SQL dedup [done] | Cleanup before more tools land |
+| 11 | R4 + DD4 — Spec source unification (option b) [done] | Schema-neutral; finishes source ABC story |
+| 12 | DD9 — Drop `get_news` refresh flag [done] | Trivial, ride alongside worker introduction |
+| 13 | N5 + N6 + DD6 — Worker daemon + systemd units [done] | Phase 4/5 production work |
 | 14 | DD12 + N2 — Tiered cache TTL | Worker work continues |
 | 15 | S2, S3, S5, S6 | Security cleanup batch |
 | 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc | Defense-in-depth follow-up |

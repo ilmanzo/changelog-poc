@@ -135,12 +135,12 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 
 ## Phased build status
 
-- Phase 0 — scaffold: ✓
-- Phase 1 — changelog parity with changelog-poc: ✓ (all 8 tools wired to Postgres)
-- Phase 2 — spec assistant features: ✓ (get_spec_details only; LLM-backed tools dropped — MCP clients have their own LLM)
-- Phase 3 — news + openQA: ✓ (get_news, get_openqa_tests)
+- Phase 0 — scaffold: done
+- Phase 1 — changelog parity with changelog-poc: done (all 8 tools wired to Postgres)
+- Phase 2 — spec assistant features: done (get_spec_details only; LLM-backed tools dropped — MCP clients have their own LLM)
+- Phase 3 — news + openQA: done (get_news, get_openqa_tests)
 - Phase 4 — centralised worker + bench tuning
-- Phase 4.5 — unit tests + coverage: ✓ (181 tests, 73% coverage; see plan.md)
+- Phase 4.5 — unit tests + coverage: done (181 tests, 73% coverage; see plan.md)
 - Phase 5 — production hardening: resilience, worker daemon, ops artifacts (see plan.md Phase 5 section)
 - Phase 6 — Go port (deferred)
 

@@ -78,7 +78,7 @@ claude mcp add rpm-mcp \
   -- uv run --directory /abs/path/to/rpm-mcp python mcp_server.py
 ```
 
-Verify: `claude mcp list` — should show `rpm-mcp ✓ Connected`. Inside a Claude
+Verify: `claude mcp list` — should show `rpm-mcp Connected`. Inside a Claude
 Code session, run `/mcp` to confirm the tools are exposed.
 
 To override the DSN:
@@ -176,6 +176,10 @@ uv run scripts/bench.py both
 | `get_news` | Bodhi + RSS news for a package |
 | `get_openqa_tests` | openQA test mappings |
 | `sync_package` | Force re-ingest a package |
+
+## Prompt Examples
+
+See [`prompt_examples.md`](prompt_examples.md) for a collection of useful queries and discovery patterns.
 
 ## Security
 

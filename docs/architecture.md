@@ -173,13 +173,13 @@ rpm -q --changelog vim
 
 | Source | `is_local` | Capability | Notes |
 |---|---|---|---|
-| `RpmSource` | ✓ | `fetch_changelog` | `rpm -q --changelog`; no network; runs first |
-| `ObsSource` | ✗ | `fetch_changelog`, `fetch_spec` | OBS Factory API; `.changes` parser |
-| `GiteaSource` | ✗ | `fetch_changelog` | `src.opensuse.org` mirror; fallback |
-| `PagureSource` | ✗ | `fetch_spec` | Fedora Pagure API |
-| `BodhiSource` | ✗ | `fetch_news` | Fedora Bodhi updates feed |
-| `OpenSUSENewsSource` | ✗ | `fetch_news` | openSUSE RSS |
-| `OpenQASource` | ✓ | `fetch_tests` | local `os-autoinst-distri-opensuse` checkout |
+| `RpmSource` | yes | `fetch_changelog` | `rpm -q --changelog`; no network; runs first |
+| `ObsSource` | no | `fetch_changelog`, `fetch_spec` | OBS Factory API; `.changes` parser |
+| `GiteaSource` | no | `fetch_changelog` | `src.opensuse.org` mirror; fallback |
+| `PagureSource` | no | `fetch_spec` | Fedora Pagure API |
+| `BodhiSource` | no | `fetch_news` | Fedora Bodhi updates feed |
+| `OpenSUSENewsSource` | no | `fetch_news` | openSUSE RSS |
+| `OpenQASource` | yes | `fetch_tests` | local `os-autoinst-distri-opensuse` checkout |
 
 Fetch strategy (env `FETCH_STRATEGY`):
 
