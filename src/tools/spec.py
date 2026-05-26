@@ -46,7 +46,7 @@ async def _ensure_spec(
     return pkg_id, spec_id, text, url or ""
 
 
-@_tool_wrapper("get_spec_details")
+@_tool_wrapper("get_spec_details", untrusted_sources=("opensuse", "fedora"))
 async def get_spec_details(package: str, source: str = "opensuse") -> str:
     """Return the parsed AST sections of *package*'s .spec from *source*
     (``opensuse`` or ``fedora``). Fetched on cache miss.

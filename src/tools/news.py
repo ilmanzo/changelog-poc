@@ -11,7 +11,7 @@ from src.tools._helpers import _format_date
 from src.tools._wrap import _tlog, _tool_wrapper
 
 
-@_tool_wrapper("get_news")
+@_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"))
 async def get_news(package: str | None = None, limit: int = 10) -> str:
     """Recent Fedora Bodhi + openSUSE news items, optionally scoped to *package*.
 
@@ -37,7 +37,7 @@ async def get_news(package: str | None = None, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-@_tool_wrapper("get_openqa_tests")
+@_tool_wrapper("get_openqa_tests", untrusted_sources=("openqa",))
 async def get_openqa_tests(package: str) -> str:
     """List openQA tests that exercise *package*."""
     validate_package_name(package)
