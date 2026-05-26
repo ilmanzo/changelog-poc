@@ -44,7 +44,9 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
                 _logger.warning("bodhi_http", status=resp.status_code)
                 return items
             for u in resp.json().get("updates", []):
-                title = scrub_external(u.get("title") or "")
+                raw_title = u.get("title") or ""
+                pkg = _pkg_from_title(raw_title) if raw_title else None
+                title = scrub_external(raw_title, source="bodhi", package=pkg)
                 if not title:
                     continue
                 items.append(NewsItem(
@@ -52,10 +54,12 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
                     source="bodhi",
                     item_type=u.get("type"),
                     importance=_classify_bodhi(u),
-                    content=scrub_external(u.get("notes") or "") or None,
+                    content=scrub_external(
+                        u.get("notes") or "", source="bodhi", package=pkg
+                    ) or None,
                     url=u.get("url"),
                     date=datetime.now(UTC),
-                    package_name=_pkg_from_title(title),
+                    package_name=pkg,
                 ))
     except Exception as e:
         _logger.warning("bodhi_error", error=str(e))
@@ -90,17 +94,21 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
                 title_raw = _child_text(entry, "title")
                 if not title_raw:
                     continue
-                title = scrub_external(title_raw)
+                pkg = "Tumbleweed" if (
+                    "Tumbleweed" in title_raw or "Snapshot" in title_raw
+                ) else None
+                title = scrub_external(title_raw, source="opensuse-rss", package=pkg)
                 desc_raw = _child_text(entry, "description")
                 link_raw = _child_text(entry, "link")
-                pkg = "Tumbleweed" if ("Tumbleweed" in title or "Snapshot" in title) else None
                 importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
                 items.append(NewsItem(
                     title=title,
                     source="opensuse-rss",
                     item_type="snapshot" if pkg else "news",
                     importance=importance,
-                    content=scrub_external(desc_raw) if desc_raw else None,
+                    content=scrub_external(
+                        desc_raw, source="opensuse-rss", package=pkg
+                    ) if desc_raw else None,
                     url=link_raw,
                     date=datetime.now(UTC),
                     package_name=pkg,

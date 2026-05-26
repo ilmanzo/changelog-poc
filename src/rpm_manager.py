@@ -33,7 +33,7 @@ class RPMManager:
         url: str | None = raw_url if raw_url and raw_url != "(none)" else None
 
         raw_changelog, _, _ = await self._exec("-q", "--changelog", "--", package_name)
-        parsed_entries = self.parse_changelog(raw_changelog)
+        parsed_entries = self.parse_changelog(raw_changelog, package=package_name)
 
         return PackageMetadata(
             name=name,
@@ -131,9 +131,11 @@ class RPMManager:
     )
 
     @staticmethod
-    def parse_changelog(raw_text: str) -> list[ChangelogEntry]:
+    def parse_changelog(
+        raw_text: str, *, package: str | None = None
+    ) -> list[ChangelogEntry]:
         """Parse RPM ``--changelog`` output into ChangelogEntry list."""
-        raw_text = scrub_external(raw_text)
+        raw_text = scrub_external(raw_text, package=package, source="rpm")
         entries = RPMManager._parse_header_blocks(raw_text)
         RPMManager._backfill_missing_versions(entries)
         return entries

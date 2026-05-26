@@ -22,7 +22,12 @@ _SECTION_TAGS = (
 )
 
 
-def extract_sections(content: str) -> dict[str, str]:
+def extract_sections(
+    content: str,
+    *,
+    package: str | None = None,
+    source: str | None = None,
+) -> dict[str, str]:
     """Section name → raw section content. Includes a synthetic 'header' preamble.
 
     Why TemporaryDirectory: untrusted spec macros (e.g. ``%include``, ``%{load:..}``)
@@ -30,7 +35,7 @@ def extract_sections(content: str) -> dict[str, str]:
     blocks any cross-call interference and prevents accidental writes to the
     shared ``/tmp``.
     """
-    content = scrub_external(content)
+    content = scrub_external(content, package=package, source=source)
     try:
         with tempfile.TemporaryDirectory(prefix="rpm-mcp-spec-") as sourcedir:
             spec = Specfile(content=content, sourcedir=sourcedir)

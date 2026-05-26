@@ -36,7 +36,7 @@ async def _ensure_spec(
 
     pkg_id = await db.upsert_package(package)
     spec_id = await db.upsert_spec(pkg_id, source, version=None, content=text)
-    sections = chunk_sections(extract_sections(text))
+    sections = chunk_sections(extract_sections(text, package=package, source=source))
     if sections:
         embeddings = await embedder.embed_batch(s.content for s in sections)
         if not embeddings:
@@ -58,7 +58,7 @@ async def get_spec_details(package: str, source: str = "opensuse") -> str:
     if out is None:
         return f"No {source} spec found for {package}."
     _, _, content, _ = out
-    sections = extract_sections(content)
+    sections = extract_sections(content, package=package, source=source)
     _tlog(sections=len(sections))
     lines = [f"Package: {package} (source: {source}) -- {len(sections)} sections"]
     for name, body in sections.items():

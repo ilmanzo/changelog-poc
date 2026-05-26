@@ -32,9 +32,18 @@ _VERSION_PATTERNS = [
 ]
 
 
-def parse_obs_changes(raw_text: str) -> list[ChangelogEntry]:
-    """Parse an OBS .changes file into a list of ChangelogEntry objects."""
-    raw_text = scrub_external(raw_text)
+def parse_obs_changes(
+    raw_text: str,
+    *,
+    package: str | None = None,
+    source: str | None = None,
+) -> list[ChangelogEntry]:
+    """Parse an OBS .changes file into a list of ChangelogEntry objects.
+
+    ``package`` / ``source`` are passed to ``scrub_external`` so the
+    prompt-injection heuristic can log which feed tripped it.
+    """
+    raw_text = scrub_external(raw_text, package=package, source=source)
     entries: list[ChangelogEntry] = []
 
     for block in _BLOCK_SPLIT.split(raw_text):

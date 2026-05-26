@@ -21,6 +21,6 @@ class GiteaSource(HttpSource):
         url = f"{self._BASE_URL}/{package}/raw/branch/master/{package}.changes"
         text = await self._fetch_text(url)
         return FetchResult(
-            entries=parse_obs_changes(text),
+            entries=parse_obs_changes(text, package=package, source=self.name),
             source_name=self.name,
         )
