@@ -524,69 +524,93 @@ class Database:
     # ------------------------------------------------------------------
     # manifest / eviction
     # ------------------------------------------------------------------
-    async def touch_manifest(self, package_id: int) -> None:
+    async def touch_manifest(
+        self, package_id: int, kind: str = "changelog"
+    ) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO manifest (package_id, synced_at)
-                VALUES ($1, now())
-                ON CONFLICT (package_id) DO UPDATE SET synced_at = now()
+                INSERT INTO manifest (package_id, kind, synced_at)
+                VALUES ($1, $2, now())
+                ON CONFLICT (package_id, kind) DO UPDATE SET synced_at = now()
                 """,
                 package_id,
+                kind,
             )
 
-    async def is_fresh(self, package_id: int, ttl_seconds: int) -> bool:
+    async def is_fresh(
+        self, package_id: int, ttl_seconds: int, kind: str = "changelog"
+    ) -> bool:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT synced_at FROM manifest WHERE package_id = $1",
+                "SELECT synced_at FROM manifest WHERE package_id = $1 AND kind = $2",
                 package_id,
+                kind,
             )
         if not row:
             return False
         age = (datetime.now(timezone.utc) - row["synced_at"]).total_seconds()
         return age < ttl_seconds
 
-    async def get_synced_at(self, package_id: int) -> datetime | None:
+    async def get_synced_at(
+        self, package_id: int, kind: str = "changelog"
+    ) -> datetime | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT synced_at FROM manifest WHERE package_id = $1",
+                "SELECT synced_at FROM manifest WHERE package_id = $1 AND kind = $2",
                 package_id,
+                kind,
             )
         return row["synced_at"] if row else None
 
-    async def evict_stale(self, ttl_seconds: int) -> list[str]:
-        """Delete changelog rows for packages whose manifest is older than TTL.
-        Returns the list of evicted package names.
+    async def evict_stale(
+        self, ttl_seconds: int, kind: str = "changelog"
+    ) -> list[str]:
+        """Delete cached rows for packages whose manifest *kind* is older than
+        TTL. Only ``kind='changelog'`` deletes from ``changelog_entries``; other
+        kinds only purge their manifest entry (specs evict via the worker's
+        respec flow). Returns evicted package names.
         """
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
                 SELECT p.id, p.name FROM packages p
-                JOIN manifest m ON m.package_id = p.id
-                WHERE m.synced_at < now() - ($1 || ' seconds')::interval
+                JOIN manifest m ON m.package_id = p.id AND m.kind = $2
+                WHERE m.synced_at < now() - make_interval(secs => $1)
                 """,
-                str(ttl_seconds),
+                ttl_seconds,
+                kind,
             )
             names = [r["name"] for r in rows]
             if names:
                 ids = [r["id"] for r in rows]
+                if kind == "changelog":
+                    await conn.execute(
+                        "DELETE FROM changelog_entries WHERE package_id = ANY($1::bigint[])",
+                        ids,
+                    )
+                elif kind == "spec":
+                    await conn.execute(
+                        "DELETE FROM specs WHERE package_id = ANY($1::bigint[])",
+                        ids,
+                    )
                 await conn.execute(
-                    "DELETE FROM changelog_entries WHERE package_id = ANY($1::bigint[])",
+                    "DELETE FROM manifest WHERE package_id = ANY($1::bigint[]) AND kind = $2",
                     ids,
-                )
-                await conn.execute(
-                    "DELETE FROM manifest WHERE package_id = ANY($1::bigint[])",
-                    ids,
+                    kind,
                 )
         return names
 
     async def get_sync_ages(
-        self, package_names: list[str] | None = None
+        self,
+        package_names: list[str] | None = None,
+        kind: str = "changelog",
     ) -> list[dict[str, Any]]:
-        """Return [{name, synced_at, age_seconds}] for synced packages.
+        """Return [{name, synced_at, age_seconds}] for packages with a manifest
+        row of the given *kind*.
 
         If *package_names* is given, restrict to those names (unsynced ones are
-        omitted). If None, return all rows in the manifest.
+        omitted). If None, return all rows of that kind.
         """
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
@@ -595,9 +619,21 @@ class Database:
                        EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
                 FROM manifest m
                 JOIN packages p ON p.id = m.package_id
-                WHERE ($1::text[] IS NULL OR p.name = ANY($1::text[]))
+                WHERE m.kind = $2
+                  AND ($1::text[] IS NULL OR p.name = ANY($1::text[]))
                 ORDER BY m.synced_at ASC
                 """,
                 package_names,
+                kind,
             )
         return [dict(r) for r in rows]
+
+    async def news_age_seconds(self) -> int | None:
+        """Seconds since the most recently ingested news item. ``None`` if
+        the ``news`` table is empty. Drives the worker's news-TTL guard.
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT EXTRACT(EPOCH FROM (now() - MAX(item_date)))::int AS age FROM news"
+            )
+        return row["age"] if row and row["age"] is not None else None

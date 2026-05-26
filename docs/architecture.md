@@ -194,7 +194,7 @@ Fetch strategy (env `FETCH_STRATEGY`):
 |---|---|
 | Transport | FastMCP stdio (default) or SSE (`MCP_TRANSPORT=sse`) |
 | Validation | `validate_package_name()` regex on every tool input |
-| Cache / TTL | `manifest` table tracks `synced_at`; `is_fresh()` checks age vs `CACHE_TTL_SECONDS` |
+| Cache / TTL | `manifest(package_id, kind, synced_at)` — per-kind freshness; `is_fresh(pkg_id, ttl, kind)` checks against `CACHE_TTL_{NEWS,CHANGELOG,SPEC}_S` |
 | Embedding | `fastembed` `BAAI/bge-small-en-v1.5` (384-dim) in `asyncio.to_thread` |
 | FTS | PostgreSQL `tsvector` generated column + `plainto_tsquery` |
 | Vector search | pgvector HNSW index, cosine distance (`<=>`) |
@@ -246,7 +246,9 @@ Fetch strategy (env `FETCH_STRATEGY`):
 |---|---|---|
 | `DATABASE_URL` | `postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp` | asyncpg DSN |
 | `FETCH_STRATEGY` | `waterfall` | `waterfall` or `parallel` |
-| `CACHE_TTL_SECONDS` | `604800` | Manifest freshness TTL (1 week) |
+| `CACHE_TTL_NEWS_S` | `86400` | News (RSS/Bodhi) refresh interval — 24h |
+| `CACHE_TTL_CHANGELOG_S` | `86400` | Per-package changelog freshness — 24h |
+| `CACHE_TTL_SPEC_S` | `604800` | Per-package spec freshness — 7d |
 | `CACHE_MAX_ENTRIES` | `1000` | Max changelog entries fetched per package |
 | `F4_MAX_PACKAGES` | `50` | Max deps expanded by `get_dependency_changes` |
 | `PG_POOL_MIN_SIZE` | `2` | asyncpg pool min connections |

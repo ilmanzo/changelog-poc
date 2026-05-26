@@ -13,8 +13,10 @@ class Settings(BaseSettings):
     pg_pool_min_size: int = 2
     pg_pool_max_size: int = 20
 
-    # Cache / eviction
-    cache_ttl_seconds: int = 604800       # 1 week
+    # Cache / eviction (DD12 — per-kind TTLs)
+    cache_ttl_news_s: int = 86400         # 24h: RSS/Bodhi feeds polled daily
+    cache_ttl_changelog_s: int = 86400    # 24h: package builds rarely flip more often
+    cache_ttl_spec_s: int = 604800        # 7d: spec churn is glacial
     cache_max_entries: int = 1000         # per package fetch cap
     eviction_min_interval_s: int = 3600   # min gap between opportunistic sweeps
 

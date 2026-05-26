@@ -4,6 +4,7 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from src import embedder
+from src.config import settings
 from src.ingest import validate_package_name
 from src.runtime import db
 from src.sources.spec_sources import SPEC_SOURCES
@@ -15,11 +16,13 @@ from src.tools._wrap import _tlog, _tool_wrapper
 async def _ensure_spec(
     package: str, source: str = "opensuse"
 ) -> tuple[int, int, str, str] | None:
-    """Fetch + persist spec if not cached. Returns ``(package_id, spec_id, content, url)``
-    or ``None`` if no source has it.
+    """Fetch + persist spec if missing or older than ``cache_ttl_spec_s``.
+    Returns ``(package_id, spec_id, content, url)`` or ``None`` if no source has it.
     """
     pkg_id = await db.get_package_id(package)
-    if pkg_id is not None:
+    if pkg_id is not None and await db.is_fresh(
+        pkg_id, settings.cache_ttl_spec_s, kind="spec"
+    ):
         cached = await db.get_spec(pkg_id, source)
         if cached:
             return pkg_id, int(cached["id"]), cached["content"], ""
@@ -39,6 +42,7 @@ async def _ensure_spec(
         if not embeddings:
             embeddings = [[] for _ in sections]
         await db.replace_spec_sections(spec_id, sections, embeddings)
+    await db.touch_manifest(pkg_id, kind="spec")
     return pkg_id, spec_id, text, url or ""
 
 

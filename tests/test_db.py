@@ -219,6 +219,17 @@ async def test_get_synced_at_missing_returns_none(database: Database) -> None:
     assert await database.get_synced_at(pkg_id) is None
 
 
+@pytest.mark.e2e
+async def test_manifest_kinds_are_independent(database: Database) -> None:
+    """DD12: changelog and spec rows track separate timestamps for the same package."""
+    pkg_id = await database.upsert_package("test-tiered")
+    await database.touch_manifest(pkg_id, kind="changelog")
+    assert await database.is_fresh(pkg_id, 3600, kind="changelog")
+    assert not await database.is_fresh(pkg_id, 3600, kind="spec")
+    await database.touch_manifest(pkg_id, kind="spec")
+    assert await database.is_fresh(pkg_id, 3600, kind="spec")
+
+
 # ---------------------------------------------------------------------------
 # Semantic search (zero vector — just validates the query runs)
 # ---------------------------------------------------------------------------

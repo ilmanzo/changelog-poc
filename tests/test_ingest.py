@@ -87,7 +87,7 @@ async def test_ingest_calls_touch_manifest() -> None:
         svc = IngestService(reg, db)
         await svc.ingest("vim")
 
-    db.touch_manifest.assert_awaited_once_with(1)  # package_id=1
+    db.touch_manifest.assert_awaited_once_with(1, kind="changelog")
 
 
 async def test_ingest_embed_failure_falls_back_to_empty_vectors() -> None:

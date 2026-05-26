@@ -172,7 +172,7 @@ class IngestService:
             embeddings=embeddings,
             source_name=result.source_name,
         )
-        await self._db.touch_manifest(package_id)
+        await self._db.touch_manifest(package_id, kind="changelog")
 
         elapsed = round(time.perf_counter() - t0, 3)
         log.info(

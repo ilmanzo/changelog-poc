@@ -58,13 +58,19 @@ async def _run(args: argparse.Namespace) -> int:
     log = structlog.get_logger("worker")
     async with lifespan(None):
         if args.sweep:
-            evicted = await db.evict_stale(settings.cache_ttl_seconds)
-            log.info("ttl_sweep", evicted=len(evicted))
+            cl = await db.evict_stale(settings.cache_ttl_changelog_s, kind="changelog")
+            sp = await db.evict_stale(settings.cache_ttl_spec_s, kind="spec")
+            log.info("ttl_sweep", changelog=len(cl), spec=len(sp))
 
         if args.news or args.all:
-            items = await fetch_all_news(limit=50)
-            inserted = await db.upsert_news(items)
-            log.info("news_refreshed", inserted=inserted)
+            age = await db.news_age_seconds()
+            if not args.force and age is not None and age < settings.cache_ttl_news_s:
+                log.info("news_skipped_fresh", age_s=age,
+                         ttl_s=settings.cache_ttl_news_s)
+            else:
+                items = await fetch_all_news(limit=50)
+                inserted = await db.upsert_news(items)
+                log.info("news_refreshed", inserted=inserted, prev_age_s=age)
 
         if args.openqa:
             tests = scan_tests(args.openqa)
@@ -91,9 +97,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--openqa", type=Path,
                    help="Path to a checked-out os-autoinst-distri-opensuse repo to scan")
     p.add_argument("--sweep", action="store_true",
-                   help="Evict packages whose manifest is older than CACHE_TTL_SECONDS")
+                   help="Evict per-kind manifest rows older than their CACHE_TTL_*_S")
     p.add_argument("--all", action="store_true",
                    help="Run sweep + news + ingest (uses --file if given, else rpm -qa)")
+    p.add_argument("--force", action="store_true",
+                   help="Ignore the news TTL guard and refresh feeds unconditionally")
     p.add_argument("--debug", action="store_true")
     args = p.parse_args()
     args.packages_path_provided = bool(args.file)

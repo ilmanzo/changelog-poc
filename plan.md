@@ -706,7 +706,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 11 | R4 + DD4 — Spec source unification (option b) [done] | Schema-neutral; finishes source ABC story |
 | 12 | DD9 — Drop `get_news` refresh flag [done] | Trivial, ride alongside worker introduction |
 | 13 | N5 + N6 + DD6 — Worker daemon + systemd units [done] | Phase 4/5 production work |
-| 14 | DD12 + N2 — Tiered cache TTL | Worker work continues |
+| 14 | DD12 + N2 — Tiered cache TTL [done] | Worker work continues |
 | 15 | S2, S3, S5, S6 | Security cleanup batch |
 | 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc | Defense-in-depth follow-up |
 | 17 | B2, B3, B4 | Minor bug batch |

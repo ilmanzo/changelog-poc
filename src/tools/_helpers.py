@@ -128,7 +128,9 @@ async def _ensure_or_queue(package: str, refresh: bool = False) -> _Readiness:
     if pkg_id is None:
         ingest_service.schedule(package)
         return _Readiness.QUEUED
-    if not refresh and await db.is_fresh(pkg_id, settings.cache_ttl_seconds):
+    if not refresh and await db.is_fresh(
+        pkg_id, settings.cache_ttl_changelog_s, kind="changelog"
+    ):
         return _Readiness.READY
     res = await ingest_service.ingest(package)
     if res.status is IngestStatus.STALE:
