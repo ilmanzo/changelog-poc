@@ -6,6 +6,7 @@ by on-demand and offline batch ingestion.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ class IngestStatus(str, Enum):
     EMPTY = "empty"
     INVALID = "invalid"
     STALE = "stale"   # fetch failed, serving previously-cached rows
+    ERROR = "error"   # unexpected exception during a background ingest
 
 
 @dataclass(frozen=True)
@@ -47,7 +49,9 @@ class IngestResult:
 class IngestService:
     """Coordinates ``SourceRegistry`` → ``Database`` for a single package.
 
-    Stateless. Safe to construct once and reuse across requests / batch runs.
+    In-flight ingests are coalesced via ``_pending`` so that repeated calls
+    for the same ``(package, distro)`` share a single task. Use ``schedule``
+    for fire-and-forget background dispatch (see DD10 fast-fail UX).
     """
 
     def __init__(
@@ -59,8 +63,57 @@ class IngestService:
         self._sources = source_registry
         self._db = db
         self._log = structlog.get_logger(logger_name)
+        self._pending: dict[tuple[str, str], asyncio.Task[IngestResult]] = {}
 
+    # ------------------------------------------------------------------
+    # Public entrypoints
+    # ------------------------------------------------------------------
     async def ingest(self, package: str, distro: str = "opensuse") -> IngestResult:
+        """Coalesced sync-style ingest — awaits the result."""
+        return await self._get_or_start(package, distro)
+
+    def schedule(
+        self, package: str, distro: str = "opensuse"
+    ) -> asyncio.Task[IngestResult]:
+        """Fire-and-forget. Returns the in-flight task (for tests/diagnostics).
+
+        Production callers ignore the return value. Exceptions raised inside
+        the task are captured by ``_ingest_one`` and converted to
+        ``IngestStatus.ERROR`` so unawaited tasks do not log warnings.
+        """
+        return self._get_or_start(package, distro)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+    def _get_or_start(
+        self, package: str, distro: str
+    ) -> asyncio.Task[IngestResult]:
+        key = (package, distro)
+        task = self._pending.get(key)
+        if task is not None and not task.done():
+            return task
+        task = asyncio.create_task(self._ingest_one(package, distro))
+        self._pending[key] = task
+
+        def _cleanup(_t: asyncio.Task[IngestResult], k: tuple[str, str] = key) -> None:
+            self._pending.pop(k, None)
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    async def _ingest_one(self, package: str, distro: str) -> IngestResult:
+        try:
+            return await self._do_ingest(package, distro)
+        except Exception as exc:  # noqa: BLE001 — background safety net
+            self._log.exception("ingest_failed", package=package)
+            return IngestResult(
+                package=package,
+                status=IngestStatus.ERROR,
+                error=str(exc),
+            )
+
+    async def _do_ingest(self, package: str, distro: str) -> IngestResult:
         t0 = time.perf_counter()
         log = self._log.bind(package=package)
 

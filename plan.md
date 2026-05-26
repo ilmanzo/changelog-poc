@@ -698,8 +698,8 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 3 | B1 — 4-char timezone fix | Silent data loss in current ingestion |
 | 4 | S1 — SQL builder hardening | Easy fix, removes future-injection risk |
 | 5 | S4 — `Specfile` tmpdir | Untrusted-content fix, isolated change |
-| 6 | P2 + DD3 — Stale-data fallback + banner | User-visible reliability win |
-| 7 | DD10 + N3 — Fast-fail ingest + coalescing | UX win for search tools; needed before R1 to bake into all tool sigs |
+| 6 | P2 + DD3 — Stale-data fallback + banner ✅ (commit 0db5447) | User-visible reliability win |
+| 7 | DD10 + N3 — Fast-fail ingest + coalescing ✅ | UX win for search tools; needed before R1 to bake into all tool sigs |
 | 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE | Unblocks all future tool additions |
 | 9 | R3 — Shared subprocess helper | Prep for worker daemon |
 | 10 | R2 + DD11 — Single-query SQL dedup | Cleanup before more tools land |

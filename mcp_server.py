@@ -20,7 +20,8 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any, AsyncIterator, Awaitable, Callable, Mapping, TypeAlias
+from enum import Enum
+from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Mapping, TypeAlias
 
 import structlog
 from mcp.server.fastmcp import FastMCP
@@ -90,6 +91,10 @@ mcp = FastMCP("rpm-mcp", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 MSG_PKG_NOT_FOUND = "Package '{}' not found in any source (local RPM, OBS, src.opensuse.org)."
 MSG_PKG_NOT_FOUND_SHORT = "Package '{}' not found in any source."
+MSG_PKG_QUEUED = (
+    "Package '{}' is not yet indexed; ingestion has been queued. "
+    "Retry this call in a few seconds."
+)
 MSG_INVALID_CVE = "Invalid CVE ID '{}'. Expected CVE-YYYY-NNNN(NNN)."
 MSG_INVALID_BUG = "Invalid bug ID '{}'. Expected bsc#NNNNNN, boo#NNNNNN, or bnc#NNNNNN."
 MSG_SINCE_UNPARSEABLE = "Could not parse 'since' value: {!r}."
@@ -107,7 +112,7 @@ _log_extras: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "_log_extras", default={}
 )
 
-# Why: per-task flag set when _ensure_fresh fell back to stale cached data.
+# Why: per-task flag set when _ensure_or_queue fell back to stale cached data.
 # _tool_wrapper reads it post-call and prepends a one-line ⚠ banner.
 _stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar(
     "_stale_state", default=None
@@ -195,23 +200,29 @@ def _validate_bug_id(bug_id: str) -> str:
     return bug_id.lower()
 
 
-async def _ensure_fresh(package: str, refresh: bool = False) -> bool:
-    """True if cache fresh OR a triggered ingest succeeded OR stale fallback served.
+class _Readiness(Enum):
+    READY = "ready"     # caller may read cached rows
+    QUEUED = "queued"   # never-indexed package — background ingest dispatched
 
-    When the ingest returns ``IngestStatus.STALE`` (source fetch failed, cache
-    available) we still return True so the caller renders cached rows, and we
-    flag the current task so ``_tool_wrapper`` prepends a warning banner.
+
+async def _ensure_or_queue(package: str, refresh: bool = False) -> _Readiness:
+    """Fast-fail readiness check (DD10).
+
+    Never blocks on a fresh ingest for a brand-new package: schedules a
+    background task and returns ``QUEUED`` immediately so the caller can
+    return a "queued; retry" message. For packages already in the cache,
+    falls back to the synchronous refresh path (preserving the STALE banner).
     """
     pkg_id = await db.get_package_id(package)
-    if not refresh and pkg_id is not None and await db.is_fresh(pkg_id, settings.cache_ttl_seconds):
-        return True
+    if pkg_id is None:
+        ingest_service.schedule(package)
+        return _Readiness.QUEUED
+    if not refresh and await db.is_fresh(pkg_id, settings.cache_ttl_seconds):
+        return _Readiness.READY
     res = await ingest_service.ingest(package)
-    if res.status is IngestStatus.INDEXED:
-        return True
     if res.status is IngestStatus.STALE:
         _mark_stale(res.synced_at)
-        return True
-    return False
+    return _Readiness.READY
 
 
 def _records_to_entries(rows: list[SqlRow]) -> list[ChangelogEntry]:
@@ -236,10 +247,18 @@ async def _load_entries(package: str) -> list[ChangelogEntry]:
 
 async def _ensure_and_load_entries(
     package: str, refresh: bool = False
-) -> list[ChangelogEntry] | None:
-    """Returns entries or None if ingest failed / package has no entries."""
-    if not await _ensure_fresh(package, refresh):
-        return None
+) -> list[ChangelogEntry] | Literal[_Readiness.QUEUED] | None:
+    """Fast-fail entry loader (DD10).
+
+    Returns:
+        - non-empty ``list[ChangelogEntry]`` on cache hit
+        - ``_Readiness.QUEUED`` when the package has never been indexed
+          (ingestion was scheduled in the background)
+        - ``None`` when the package row exists but holds zero entries
+    """
+    state = await _ensure_or_queue(package, refresh)
+    if state is _Readiness.QUEUED:
+        return state
     entries = await _load_entries(package)
     return entries or None
 
@@ -289,6 +308,8 @@ async def analyze_package_diff(
     """
     validate_package_name(package)
     entries = await _ensure_and_load_entries(package, refresh)
+    if entries is _Readiness.QUEUED:
+        return MSG_PKG_QUEUED.format(package)
     if entries is None:
         return MSG_PKG_NOT_FOUND.format(package)
 
@@ -379,9 +400,11 @@ async def _fetch_git_logs(
 
 async def _fetch_recent_releases(
     package: str, n: int, refresh: bool
-) -> list[ReleaseGroup] | None:
+) -> list[ReleaseGroup] | Literal[_Readiness.QUEUED] | None:
     n = max(1, min(n, 50))
     entries = await _ensure_and_load_entries(package, refresh)
+    if entries is _Readiness.QUEUED:
+        return entries
     if entries is None:
         return None
 
@@ -407,6 +430,8 @@ async def get_recent_releases(package: str, n: int = 3, refresh: bool = False) -
     """Last *n* distinct releases of *package*, grouped by version."""
     validate_package_name(package)
     groups = await _fetch_recent_releases(package, n, refresh)
+    if groups is _Readiness.QUEUED:
+        return MSG_PKG_QUEUED.format(package)
     if groups is None:
         return MSG_PKG_NOT_FOUND_SHORT.format(package)
     _tlog(releases=len(groups))
@@ -438,11 +463,11 @@ async def get_changes_in_range(
             f"'until' ({until_dt.isoformat()})."
         )
 
-    if not await _ensure_fresh(package, refresh):
-        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    if await _ensure_or_queue(package, refresh) is _Readiness.QUEUED:
+        return MSG_PKG_QUEUED.format(package)
 
     pkg_id = await db.get_package_id(package)
-    # Why: _ensure_fresh returned True, so the package row exists in `packages`.
+    # Why: _ensure_or_queue returned READY, so the package row exists in `packages`.
     assert pkg_id is not None
     rows = await db.fetch_entries_in_range(pkg_id, since_dt, until_dt)
     entries = _records_to_entries(rows)
@@ -502,8 +527,8 @@ async def find_cve(cve_id: str, package: str | None = None) -> str:
         return str(e)
     if package:
         validate_package_name(package)
-        if not await _ensure_fresh(package):
-            return MSG_PKG_NOT_FOUND_SHORT.format(package)
+        if await _ensure_or_queue(package) is _Readiness.QUEUED:
+            return MSG_PKG_QUEUED.format(package)
 
     matches = await db.find_cve(cve_id, package_name=package)
     _tlog(matches=len(matches))
@@ -536,7 +561,7 @@ async def get_dependency_changes(
         f"Dependencies of {package} "
         f"(depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
     ]
-    ok = err = missing = 0
+    ok = err = missing = queued = 0
     for dep, res in zip(deps_list, results):
         if isinstance(res, BaseException):
             err += 1
@@ -546,13 +571,17 @@ async def get_dependency_changes(
             missing += 1
             lines.append(f"\n## {dep}: no changelog found in any source")
             continue
+        if res is _Readiness.QUEUED:
+            queued += 1
+            lines.append(f"\n## {dep}: queued — retry in a few seconds")
+            continue
         ok += 1
         lines.append(f"\n## {dep} — last {len(res)} release(s)")
         for ver, newest_dt, items in res:
             lines.append(f"  === {ver} ({_format_date(newest_dt)}) ===")
             for e in items:
                 lines.append(f"  {e.content}")
-    _tlog(ok=ok, missing=missing, errors=err)
+    _tlog(ok=ok, missing=missing, errors=err, queued=queued)
     return "\n".join(lines)
 
 
@@ -648,8 +677,8 @@ async def list_cves(package: str, since: str | None = None) -> str:
     since_dt = parse_when(since) if since else None
     if since and since_dt is None:
         return MSG_SINCE_UNPARSEABLE.format(since)
-    if not await _ensure_fresh(package):
-        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    if await _ensure_or_queue(package) is _Readiness.QUEUED:
+        return MSG_PKG_QUEUED.format(package)
     rows = await db.list_package_cves(package, since=since_dt)
     _tlog(entries=len(rows))
     since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
@@ -676,8 +705,8 @@ async def find_bug(bug_id: str, package: str | None = None) -> str:
         return str(e)
     if package:
         validate_package_name(package)
-        if not await _ensure_fresh(package):
-            return MSG_PKG_NOT_FOUND_SHORT.format(package)
+        if await _ensure_or_queue(package) is _Readiness.QUEUED:
+            return MSG_PKG_QUEUED.format(package)
 
     matches = await db.find_bug(bug_id, package_name=package)
     _tlog(matches=len(matches))
@@ -698,8 +727,8 @@ async def list_bugs(package: str, since: str | None = None) -> str:
     since_dt = parse_when(since) if since else None
     if since and since_dt is None:
         return MSG_SINCE_UNPARSEABLE.format(since)
-    if not await _ensure_fresh(package):
-        return MSG_PKG_NOT_FOUND_SHORT.format(package)
+    if await _ensure_or_queue(package) is _Readiness.QUEUED:
+        return MSG_PKG_QUEUED.format(package)
     rows = await db.list_package_bugs(package, since=since_dt)
     _tlog(entries=len(rows))
     since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""

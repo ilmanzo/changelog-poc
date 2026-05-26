@@ -157,13 +157,14 @@ async def test_tool_wrapper_isolates_stale_state_between_calls() -> None:
 
 
 # ---------------------------------------------------------------------------
-# mcp_server._ensure_fresh — marks stale on IngestStatus.STALE
+# mcp_server._ensure_or_queue — marks stale on IngestStatus.STALE
 # ---------------------------------------------------------------------------
-async def test_ensure_fresh_marks_stale_on_stale_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ensure_or_queue_marks_stale_on_stale_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
     import mcp_server
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=None))
+    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=42))
+    monkeypatch.setattr(mcp_server.db, "is_fresh", AsyncMock(return_value=False))
     monkeypatch.setattr(
         mcp_server.ingest_service,
         "ingest",
@@ -184,17 +185,18 @@ async def test_ensure_fresh_marks_stale_on_stale_ingest(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(mcp_server, "_mark_stale", fake_mark)
 
-    ok = await mcp_server._ensure_fresh("vim")
+    state = await mcp_server._ensure_or_queue("vim")
 
-    assert ok is True
+    assert state is mcp_server._Readiness.READY
     assert captured["ts"] == _SYNCED_AT
 
 
-async def test_ensure_fresh_does_not_mark_on_indexed(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ensure_or_queue_does_not_mark_on_indexed(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
     import mcp_server
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=None))
+    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=42))
+    monkeypatch.setattr(mcp_server.db, "is_fresh", AsyncMock(return_value=False))
     monkeypatch.setattr(
         mcp_server.ingest_service,
         "ingest",
@@ -215,7 +217,7 @@ async def test_ensure_fresh_does_not_mark_on_indexed(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(mcp_server, "_mark_stale", fake_mark)
 
-    ok = await mcp_server._ensure_fresh("vim")
+    state = await mcp_server._ensure_or_queue("vim")
 
-    assert ok is True
+    assert state is mcp_server._Readiness.READY
     assert called is False
