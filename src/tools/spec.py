@@ -6,15 +6,10 @@ from mcp.server.fastmcp import FastMCP
 from src import embedder
 from src.ingest import validate_package_name
 from src.runtime import db
-from src.spec_fetcher import fetch_obs_spec, fetch_pagure_spec
+from src.sources.spec_sources import SPEC_SOURCES
 from src.spec_parser import chunk_sections, extract_sections
 from src.tools._helpers import MSG_UNKNOWN_SPEC_SOURCE
 from src.tools._wrap import _tlog, _tool_wrapper
-
-_SPEC_SOURCES = {
-    "opensuse": fetch_obs_spec,
-    "fedora": fetch_pagure_spec,
-}
 
 
 async def _ensure_spec(
@@ -29,10 +24,10 @@ async def _ensure_spec(
         if cached:
             return pkg_id, int(cached["id"]), cached["content"], ""
 
-    fetcher = _SPEC_SOURCES.get(source)
-    if not fetcher:
+    spec_source = SPEC_SOURCES.get(source)
+    if spec_source is None:
         return None
-    text, url = await fetcher(package)
+    text, url = await spec_source.fetch_spec(package)
     if not text:
         return None
 
@@ -53,7 +48,7 @@ async def get_spec_details(package: str, source: str = "opensuse") -> str:
     (``opensuse`` or ``fedora``). Fetched on cache miss.
     """
     validate_package_name(package)
-    if source not in _SPEC_SOURCES:
+    if source not in SPEC_SOURCES:
         return MSG_UNKNOWN_SPEC_SOURCE.format(source)
     out = await _ensure_spec(package, source)
     if out is None:
