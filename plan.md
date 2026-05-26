@@ -704,7 +704,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 9 | R3 — Shared subprocess helper ✅ | Prep for worker daemon |
 | 10 | R2 + DD11 — Single-query SQL dedup ✅ | Cleanup before more tools land |
 | 11 | R4 + DD4 — Spec source unification (option b) ✅ | Schema-neutral; finishes source ABC story |
-| 12 | DD9 — Drop `get_news` refresh flag | Trivial, ride alongside worker introduction |
+| 12 | DD9 — Drop `get_news` refresh flag ✅ | Trivial, ride alongside worker introduction |
 | 13 | N5 + N6 + DD6 — Worker daemon + systemd units | Phase 4/5 production work |
 | 14 | DD12 + N2 — Tiered cache TTL | Worker work continues |
 | 15 | S2, S3, S5, S6 | Security cleanup batch |

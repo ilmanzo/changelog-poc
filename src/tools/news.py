@@ -6,30 +6,25 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from src.ingest import validate_package_name
-from src.news_fetcher import fetch_all_news
 from src.runtime import db
 from src.tools._helpers import _format_date
 from src.tools._wrap import _tlog, _tool_wrapper
 
 
 @_tool_wrapper("get_news")
-async def get_news(package: str | None = None, limit: int = 10, refresh: bool = False) -> str:
+async def get_news(package: str | None = None, limit: int = 10) -> str:
     """Recent Fedora Bodhi + openSUSE news items, optionally scoped to *package*.
 
-    Set ``refresh=True`` to re-pull both feeds before querying.
+    Read-only against the ``news`` table; the worker daemon owns ingestion.
     """
     if package:
         validate_package_name(package)
-    if refresh:
-        items = await fetch_all_news(limit=max(limit, 20))
-        inserted = await db.upsert_news(items)
-        _tlog(fetched=len(items), inserted=inserted)
 
     rows = await db.get_news(package_name=package, limit=limit)
     _tlog(results=len(rows))
     if not rows:
         scope = f"package '{package}'" if package else "any package"
-        return f"No news items for {scope}. Try refresh=True to pull latest feeds."
+        return f"No news items for {scope}. The worker must populate the news table."
 
     lines = [f"News items ({len(rows)}{' for ' + package if package else ''}):"]
     for r in rows:

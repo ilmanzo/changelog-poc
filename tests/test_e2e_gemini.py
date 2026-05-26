@@ -399,11 +399,11 @@ def test_compare_spec_check_section_both_distros(gemini_mcp):
 # ---------------------------------------------------------------------------
 @pytest.mark.e2e
 @pytest.mark.network
-def test_get_news_with_refresh(gemini_mcp):
-    """get_news with refresh=True pulls Bodhi + openSUSE RSS feeds and returns items."""
+def test_get_news_returns_recent_items(gemini_mcp):
+    """get_news returns items already populated by the worker (read-only since DD9)."""
     out = _gemini(
         f"Call get_news from the {MCP_SERVER_NAME} MCP server "
-        "with refresh=True and limit=5. List the news sources and titles you received.",
+        "with limit=5. List the news sources and titles you received.",
         timeout=120,
     )
     assert out.strip(), "gemini returned empty output"
