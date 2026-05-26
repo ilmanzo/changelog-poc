@@ -9,6 +9,7 @@ and the SQLite layer of rpm-spec-assistant.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +26,23 @@ _logger = structlog.get_logger("rpm-mcp.db")
 
 MIGRATIONS_DIR = Path(__file__).parent.parent / "migrations"
 PKG_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # uuid namespace OID
+
+# Why: _fetch_text_search concatenates WHERE clauses verbatim, so every clause
+# string MUST match this whitelist. Form: `qualified.col OP $N` where OP is
+# one of the safe operators. RHS is *always* a placeholder; any literal value
+# must be passed via params. Reject anything else to make accidental SQL
+# injection (or a footgun on a future caller) impossible.
+_SAFE_WHERE_CLAUSE = re.compile(
+    r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*"
+    r"\s*(=|ILIKE|~\*|>=|<=|<|>|@@)\s*"
+    r"\$\d{1,3}$"
+)
+
+
+def _validate_where_clauses(clauses: Iterable[str]) -> None:
+    for c in clauses:
+        if not _SAFE_WHERE_CLAUSE.match(c):
+            raise ValueError(f"unsafe WHERE clause rejected: {c!r}")
 
 
 def content_uuid(package_name: str, content: str) -> uuid.UUID:
@@ -266,6 +284,9 @@ class Database:
     ) -> list[asyncpg.Record]:
         # Why: caller owns $N placeholder numbering — clauses are concatenated verbatim
         # so each builder can keep its SQL readable without a renumbering pass here.
+        # Every clause is validated against _SAFE_WHERE_CLAUSE to block any future
+        # caller from sneaking in user-controlled SQL fragments.
+        _validate_where_clauses(where_clauses)
         select_cols = (
             "p.name AS package, ce.version, ce.entry_date, ce.content"
             if include_package
@@ -287,10 +308,10 @@ class Database:
         self, package_name: str, since: datetime | None = None
     ) -> list[asyncpg.Record]:
         """Return entries for *package_name* mentioning a bsc#/boo#/bnc# bug reference."""
-        where = ["p.name = $1", r"ce.content ~* '\m(bsc|boo|bnc)#\d+'"]
-        params: list[Any] = [package_name]
+        where = ["p.name = $1", "ce.content ~* $2"]
+        params: list[Any] = [package_name, r"\m(bsc|boo|bnc)#\d+"]
         if since is not None:
-            where.append("ce.entry_date >= $2")
+            where.append("ce.entry_date >= $3")
             params.append(since)
         return await self._fetch_text_search(where_clauses=where, params=params)
 
@@ -316,10 +337,10 @@ class Database:
         self, package_name: str, since: datetime | None = None
     ) -> list[asyncpg.Record]:
         """Return all changelog entries for *package_name* that mention a CVE ID."""
-        where = ["p.name = $1", "ce.content ILIKE '%CVE-%'"]
-        params: list[Any] = [package_name]
+        where = ["p.name = $1", "ce.content ILIKE $2"]
+        params: list[Any] = [package_name, "%CVE-%"]
         if since is not None:
-            where.append("ce.entry_date >= $2")
+            where.append("ce.entry_date >= $3")
             params.append(since)
         return await self._fetch_text_search(where_clauses=where, params=params)
 
@@ -571,3 +592,36 @@ class Database:
                     ids,
                 )
         return names
+
+    async def get_sync_ages(
+        self, package_names: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Return [{name, synced_at, age_seconds}] for synced packages.
+
+        If *package_names* is given, restrict to those names (unsynced ones are
+        omitted). If None, return all rows in the manifest.
+        """
+        async with self.pool.acquire() as conn:
+            if package_names:
+                rows = await conn.fetch(
+                    """
+                    SELECT p.name, m.synced_at,
+                           EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
+                    FROM manifest m
+                    JOIN packages p ON p.id = m.package_id
+                    WHERE p.name = ANY($1::text[])
+                    ORDER BY m.synced_at ASC
+                    """,
+                    package_names,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT p.name, m.synced_at,
+                           EXTRACT(EPOCH FROM (now() - m.synced_at))::int AS age_seconds
+                    FROM manifest m
+                    JOIN packages p ON p.id = m.package_id
+                    ORDER BY m.synced_at ASC
+                    """,
+                )
+        return [dict(r) for r in rows]
