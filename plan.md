@@ -700,7 +700,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 5 | S4 — `Specfile` tmpdir | Untrusted-content fix, isolated change |
 | 6 | P2 + DD3 — Stale-data fallback + banner ✅ (commit 0db5447) | User-visible reliability win |
 | 7 | DD10 + N3 — Fast-fail ingest + coalescing ✅ | UX win for search tools; needed before R1 to bake into all tool sigs |
-| 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE | Unblocks all future tool additions |
+| 8 | R1 + DD5 + N1 — Split `mcp_server.py`, register-per-module, drop SSE ✅ | Unblocks all future tool additions |
 | 9 | R3 — Shared subprocess helper | Prep for worker daemon |
 | 10 | R2 + DD11 — Single-query SQL dedup | Cleanup before more tools land |
 | 11 | R4 + DD4 — Spec source unification (option b) | Schema-neutral; finishes source ABC story |
@@ -722,3 +722,11 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 27 | DD21 + N11 — Per-tool latency logging | Ride alongside R1 + N7; both modify `_tool_wrapper` |
 | 28 | DD24 + N13 — Nightly `pg_dump` + systemd timer | Pair with N5/N6 worker timers; same packaging dir |
 | 29 | DD22 — DB pool sizing bench | Phase 4 bench result; ship min=1/max=2 default until then |
+
+## Post-PoC backlog (out of scope)
+
+Captured for future iterations once the PoC graduates. Not on the current burndown.
+
+- **F1** — Test catalog integration. Pull test metadata beyond openQA (e.g. distro QA suites, upstream CI matrices) and surface a unified `get_tests(pkg)` view.
+- **F2** — Cross-distro coverage. Survey Fedora (Pagure/Bodhi/Koji) and Ubuntu (Launchpad/`changelog.Debian.gz`) ingestion paths; extend the `Source` registry with `Fedora*`/`Ubuntu*` siblings. Decide whether `distro` becomes a query dimension on every tool or a deploy-time setting.
+- **F3** — Upstream GitHub correlation. For each package, resolve its upstream GitHub repo (heuristic: `Source0:` URL, `URL:` tag, or curated mapping) and merge upstream commit history / GitHub release notes into the changelog timeline alongside distro `.changes` entries.

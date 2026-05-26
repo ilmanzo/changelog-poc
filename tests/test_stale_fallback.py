@@ -93,7 +93,7 @@ async def test_ingest_indexed_does_not_consult_cache() -> None:
 # mcp_server — banner plumbing
 # ---------------------------------------------------------------------------
 def test_stale_banner_includes_timestamp() -> None:
-    from mcp_server import _stale_banner
+    from src.tools._wrap import _stale_banner
 
     msg = _stale_banner(_SYNCED_AT)
 
@@ -103,7 +103,7 @@ def test_stale_banner_includes_timestamp() -> None:
 
 
 def test_stale_banner_handles_missing_timestamp() -> None:
-    from mcp_server import _stale_banner
+    from src.tools._wrap import _stale_banner
 
     msg = _stale_banner(None)
 
@@ -111,7 +111,7 @@ def test_stale_banner_handles_missing_timestamp() -> None:
 
 
 async def test_tool_wrapper_prepends_banner_when_marked_stale() -> None:
-    from mcp_server import _mark_stale, _tool_wrapper
+    from src.tools._wrap import _mark_stale, _tool_wrapper
 
     @_tool_wrapper("dummy")
     async def tool(package: str) -> str:
@@ -125,7 +125,7 @@ async def test_tool_wrapper_prepends_banner_when_marked_stale() -> None:
 
 
 async def test_tool_wrapper_no_banner_when_not_stale() -> None:
-    from mcp_server import _tool_wrapper
+    from src.tools._wrap import _tool_wrapper
 
     @_tool_wrapper("dummy")
     async def tool(package: str) -> str:
@@ -138,7 +138,7 @@ async def test_tool_wrapper_no_banner_when_not_stale() -> None:
 
 async def test_tool_wrapper_isolates_stale_state_between_calls() -> None:
     """A stale call must not leak its banner into a later clean call."""
-    from mcp_server import _mark_stale, _tool_wrapper
+    from src.tools._wrap import _mark_stale, _tool_wrapper
 
     @_tool_wrapper("dummy")
     async def stale_tool(package: str) -> str:
@@ -161,12 +161,13 @@ async def test_tool_wrapper_isolates_stale_state_between_calls() -> None:
 # ---------------------------------------------------------------------------
 async def test_ensure_or_queue_marks_stale_on_stale_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
-    import mcp_server
+    from src.runtime import db, ingest_service
+    from src.tools._helpers import _Readiness, _ensure_or_queue
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=42))
-    monkeypatch.setattr(mcp_server.db, "is_fresh", AsyncMock(return_value=False))
+    monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=42))
+    monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=False))
     monkeypatch.setattr(
-        mcp_server.ingest_service,
+        ingest_service,
         "ingest",
         AsyncMock(
             return_value=IngestResult(
@@ -183,22 +184,23 @@ async def test_ensure_or_queue_marks_stale_on_stale_ingest(monkeypatch: pytest.M
     def fake_mark(ts: datetime | None) -> None:
         captured["ts"] = ts
 
-    monkeypatch.setattr(mcp_server, "_mark_stale", fake_mark)
+    monkeypatch.setattr("src.tools._helpers._mark_stale", fake_mark)
 
-    state = await mcp_server._ensure_or_queue("vim")
+    state = await _ensure_or_queue("vim")
 
-    assert state is mcp_server._Readiness.READY
+    assert state is _Readiness.READY
     assert captured["ts"] == _SYNCED_AT
 
 
 async def test_ensure_or_queue_does_not_mark_on_indexed(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
-    import mcp_server
+    from src.runtime import db, ingest_service
+    from src.tools._helpers import _Readiness, _ensure_or_queue
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=42))
-    monkeypatch.setattr(mcp_server.db, "is_fresh", AsyncMock(return_value=False))
+    monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=42))
+    monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=False))
     monkeypatch.setattr(
-        mcp_server.ingest_service,
+        ingest_service,
         "ingest",
         AsyncMock(
             return_value=IngestResult(
@@ -215,9 +217,9 @@ async def test_ensure_or_queue_does_not_mark_on_indexed(monkeypatch: pytest.Monk
         nonlocal called
         called = True
 
-    monkeypatch.setattr(mcp_server, "_mark_stale", fake_mark)
+    monkeypatch.setattr("src.tools._helpers._mark_stale", fake_mark)
 
-    state = await mcp_server._ensure_or_queue("vim")
+    state = await _ensure_or_queue("vim")
 
-    assert state is mcp_server._Readiness.READY
+    assert state is _Readiness.READY
     assert called is False

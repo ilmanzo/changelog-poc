@@ -20,10 +20,11 @@ infra/infra.sh psql           # interactive psql shell
 
 uv sync                                            # install deps
 uv run mcp_server.py                               # MCP server, stdio
-MCP_TRANSPORT=sse uv run mcp_server.py             # SSE transport
+uv run mcp_server.py <tool> --help                 # one-shot CLI dispatch for any registered tool
 uv run mcp dev mcp_server.py                       # MCP Inspector at :5173
 
 uv run scripts/ingest.py <pkg>... [--file FILE]    # offline batch ingest
+uv run scripts/ingest_core.sh [N]                  # pre-ingest top N core packages (default 100)
 uv run scripts/worker.py                           # centralised cron-driven worker
 uv run scripts/bench.py {ingest|search|both}      # latency p50/p95/p99
 
@@ -91,7 +92,10 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 
 ### Module responsibilities
 
-- **`mcp_server.py`** — FastMCP entrypoint; lifespan opens/closes `Database`. All tool functions live here (or in a future `src/tools.py` if file grows).
+- **`mcp_server.py`** — FastMCP entrypoint; delegates singletons/lifespan to `src/runtime.py`, tool registration to `src/tools/`, CLI dispatch to `src/cli.py`.
+- **`src/runtime.py`** — process-wide singletons (`db`, `rpm_mgr`, `git_mgr`, `source_registry`, `ingest_service`) + `lifespan` async context manager. Single source of truth shared by tools and CLI.
+- **`src/tools/`** — tool modules grouped by concern: `changelog.py` (10 tools), `deps.py` (4 tools), `spec.py` (1 tool), `news.py` (3 tools). Each module exposes `register(mcp)` + a `CLI_TOOLS` tuple aggregated in `src/tools/__init__.py`. Cross-cutting helpers in `_wrap.py` (decorator, structlog ctxvars, stale banner) and `_helpers.py` (validation, formatters, `_ensure_or_queue` fast-fail probe).
+- **`src/cli.py`** — argparse subparser auto-generated from each tool's signature; `run_cli(serve)` dispatches `serve` or one-shot tool call.
 - **`src/db.py`** — `Database` class wraps the asyncpg pool, registers pgvector codec, applies migrations on startup. Owns *all* SQL — no other module talks to Postgres directly.
 - **`src/embedder.py`** — fastembed singleton; `embed_one`, `embed_batch`, `chunk_text` (1000/100 sliding window).
 - **`src/ingest.py`** — `IngestService(registry, db, embedder)`: fetch → embed → upsert. Shared by the MCP `sync_package` tool, `scripts/ingest.py`, and `scripts/worker.py`.
@@ -164,6 +168,6 @@ E2E tests via gemini-cli: `tests/test_e2e_gemini.py` — testcontainers Postgres
 ## Production design decisions
 
 - **Deployment**: local stdio per user, shared Postgres — no SSE, no auth
-- **Source failure**: serve stale cached data with `⚠ fetch failed, data from <timestamp>` warning
+- **Source failure**: serve stale cached data with `WARNING: source fetch failed; serving cached data from <timestamp>` banner
 - **LLM tooling**: server has no embedded LLM — MCP client (Claude/gemini-cli) provides reasoning on raw data returned by tools
 - **Out of scope**: auth, TLS, Prometheus, Containerfile

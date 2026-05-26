@@ -149,9 +149,10 @@ async def test_background_ingest_exception_becomes_error_status() -> None:
 async def test_ensure_or_queue_returns_queued_for_unknown_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import mcp_server
+    from src.runtime import db, ingest_service
+    from src.tools._helpers import _Readiness, _ensure_or_queue
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=None))
+    monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=None))
 
     schedule_calls: list[str] = []
 
@@ -159,14 +160,14 @@ async def test_ensure_or_queue_returns_queued_for_unknown_package(
         schedule_calls.append(pkg)
         return AsyncMock()  # not awaited
 
-    monkeypatch.setattr(mcp_server.ingest_service, "schedule", fake_schedule)
+    monkeypatch.setattr(ingest_service, "schedule", fake_schedule)
     # ingest should NOT be called on the fast-fail path
     ingest_mock = AsyncMock()
-    monkeypatch.setattr(mcp_server.ingest_service, "ingest", ingest_mock)
+    monkeypatch.setattr(ingest_service, "ingest", ingest_mock)
 
-    state = await mcp_server._ensure_or_queue("brand-new-pkg")
+    state = await _ensure_or_queue("brand-new-pkg")
 
-    assert state is mcp_server._Readiness.QUEUED
+    assert state is _Readiness.QUEUED
     assert schedule_calls == ["brand-new-pkg"]
     ingest_mock.assert_not_awaited()
 
@@ -174,16 +175,17 @@ async def test_ensure_or_queue_returns_queued_for_unknown_package(
 async def test_ensure_or_queue_returns_ready_for_fresh_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import mcp_server
+    from src.runtime import db, ingest_service
+    from src.tools._helpers import _Readiness, _ensure_or_queue
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=7))
-    monkeypatch.setattr(mcp_server.db, "is_fresh", AsyncMock(return_value=True))
+    monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=7))
+    monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=True))
     ingest_mock = AsyncMock()
-    monkeypatch.setattr(mcp_server.ingest_service, "ingest", ingest_mock)
+    monkeypatch.setattr(ingest_service, "ingest", ingest_mock)
 
-    state = await mcp_server._ensure_or_queue("vim")
+    state = await _ensure_or_queue("vim")
 
-    assert state is mcp_server._Readiness.READY
+    assert state is _Readiness.READY
     ingest_mock.assert_not_awaited()
 
 
@@ -193,16 +195,17 @@ async def test_ensure_or_queue_returns_ready_for_fresh_cache(
 async def test_list_bugs_returns_queued_message_for_unknown_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import mcp_server
+    from src.runtime import db, ingest_service
+    from src.tools.changelog import list_bugs
 
-    monkeypatch.setattr(mcp_server.db, "get_package_id", AsyncMock(return_value=None))
-    monkeypatch.setattr(mcp_server.ingest_service, "schedule", lambda pkg, distro="opensuse": None)
+    monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=None))
+    monkeypatch.setattr(ingest_service, "schedule", lambda pkg, distro="opensuse": None)
     # db.list_package_bugs must NOT be called on the queued path
-    list_bugs = AsyncMock()
-    monkeypatch.setattr(mcp_server.db, "list_package_bugs", list_bugs)
+    list_bugs_mock = AsyncMock()
+    monkeypatch.setattr(db, "list_package_bugs", list_bugs_mock)
 
-    out = await mcp_server.list_bugs(package="never-seen")
+    out = await list_bugs(package="never-seen")
 
     assert "not yet indexed" in out
     assert "never-seen" in out
-    list_bugs.assert_not_awaited()
+    list_bugs_mock.assert_not_awaited()
