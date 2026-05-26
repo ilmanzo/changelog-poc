@@ -94,6 +94,20 @@ async def test_waterfall_all_fail_returns_empty() -> None:
 
     assert result.is_empty
     assert result.source_name == "none"
+    assert result.fetch_failed is True
+
+
+async def test_waterfall_only_not_found_does_not_flag_failure() -> None:
+    """404s alone (no errors) should NOT trigger the stale fallback."""
+    s1, s2 = _make_source("s1"), _make_source("s2")
+    s1.fetch = AsyncMock(side_effect=SourceNotFound())
+    s2.fetch = AsyncMock(side_effect=SourceNotFound())
+
+    reg = SourceRegistry([s1, s2], FetchStrategy.WATERFALL)
+    result = await reg.fetch("vim")
+
+    assert result.is_empty
+    assert result.fetch_failed is False
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +162,7 @@ async def test_parallel_all_network_fail_returns_empty() -> None:
     result = await reg.fetch("vim")
 
     assert result.is_empty
+    assert result.fetch_failed is True
 
 
 # ---------------------------------------------------------------------------

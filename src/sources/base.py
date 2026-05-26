@@ -21,11 +21,12 @@ class SourceError(Exception):
 
 @dataclass
 class FetchResult:
-    """Outcome of a single ``ChangelogSource.fetch`` call."""
+    """Outcome of a single ``ChangelogSource.fetch`` call (or a registry run)."""
 
     entries: list[ChangelogEntry]
     upstream_url: str | None = None   # populated only by RpmSource
     source_name: str = ""
+    fetch_failed: bool = False        # set by registry when ≥1 source raised SourceError
 
     @property
     def is_empty(self) -> bool:

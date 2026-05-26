@@ -567,6 +567,14 @@ class Database:
         age = (datetime.now(timezone.utc) - row["synced_at"]).total_seconds()
         return age < ttl_seconds
 
+    async def get_synced_at(self, package_id: int) -> datetime | None:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT synced_at FROM manifest WHERE package_id = $1",
+                package_id,
+            )
+        return row["synced_at"] if row else None
+
     async def evict_stale(self, ttl_seconds: int) -> list[str]:
         """Delete changelog rows for packages whose manifest is older than TTL.
         Returns the list of evicted package names.

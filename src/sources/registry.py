@@ -39,6 +39,7 @@ class SourceRegistry:
             await source.close()
 
     async def _fetch_waterfall(self, package: str) -> FetchResult:
+        any_error = False
         for source in self._sources:
             try:
                 result = await source.fetch(package)
@@ -52,12 +53,14 @@ class SourceRegistry:
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")
             except SourceError as exc:
+                any_error = True
                 logger.warning("source_error",
                                package=package, source=source.name, error=str(exc))
 
-        return FetchResult(entries=[], source_name="none")
+        return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
     async def _fetch_parallel(self, package: str) -> FetchResult:
+        any_error = False
         for source in self._local:
             try:
                 result = await source.fetch(package)
@@ -70,11 +73,12 @@ class SourceRegistry:
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")
             except SourceError as exc:
+                any_error = True
                 logger.warning("source_error",
                                package=package, source=source.name, error=str(exc))
 
         if not self._network:
-            return FetchResult(entries=[], source_name="none")
+            return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
         raw = await asyncio.gather(
             *[s.fetch(package) for s in self._network],
@@ -87,13 +91,14 @@ class SourceRegistry:
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")
             elif isinstance(outcome, (SourceError, Exception)):
+                any_error = True
                 logger.warning("source_error",
                                package=package, source=source.name, error=str(outcome))
             elif isinstance(outcome, FetchResult) and not outcome.is_empty:
                 valid.append(outcome)
 
         if not valid:
-            return FetchResult(entries=[], source_name="none")
+            return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
         best = max(valid, key=lambda r: len(r.entries))
         logger.info("source_hit",

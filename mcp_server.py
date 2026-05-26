@@ -107,10 +107,26 @@ _log_extras: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "_log_extras", default={}
 )
 
+# Why: per-task flag set when _ensure_fresh fell back to stale cached data.
+# _tool_wrapper reads it post-call and prepends a one-line ⚠ banner.
+_stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar(
+    "_stale_state", default=None
+)
+
 
 def _tlog(**fields: Any) -> None:
     """Add structured fields to the wrapping tool's terminal log record."""
     _log_extras.set({**_log_extras.get(), **fields})
+
+
+def _mark_stale(synced_at: datetime | None) -> None:
+    """Flag the current tool call as serving stale data."""
+    _stale_state.set(synced_at)
+
+
+def _stale_banner(synced_at: datetime | None) -> str:
+    ts = synced_at.isoformat() if synced_at else "unknown timestamp"
+    return f"⚠ Source fetch failed; serving cached data from {ts}\n\n"
 
 
 def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]]:
@@ -121,6 +137,7 @@ def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], C
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> str:
             token = _log_extras.set({})
+            stale_token = _stale_state.set(None)
             t0 = time.perf_counter()
             bound: Mapping[str, Any]
             try:
@@ -133,11 +150,15 @@ def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], C
             )
             try:
                 result = await fn(*args, **kwargs)
+                stale_at = _stale_state.get()
                 log.info(
                     "tool_done",
                     elapsed_s=round(time.perf_counter() - t0, 3),
+                    stale=stale_at is not None,
                     **_log_extras.get(),
                 )
+                if stale_at is not None:
+                    return _stale_banner(stale_at) + result
                 return result
             except Exception as e:
                 log.exception(
@@ -148,6 +169,7 @@ def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], C
                 return f"Error in {tool_name} for {bound.get('package', '?')}: {e}"
             finally:
                 _log_extras.reset(token)
+                _stale_state.reset(stale_token)
 
         return wrapper
 
@@ -174,12 +196,22 @@ def _validate_bug_id(bug_id: str) -> str:
 
 
 async def _ensure_fresh(package: str, refresh: bool = False) -> bool:
-    """True if cache fresh OR a triggered ingest succeeded."""
+    """True if cache fresh OR a triggered ingest succeeded OR stale fallback served.
+
+    When the ingest returns ``IngestStatus.STALE`` (source fetch failed, cache
+    available) we still return True so the caller renders cached rows, and we
+    flag the current task so ``_tool_wrapper`` prepends a warning banner.
+    """
     pkg_id = await db.get_package_id(package)
     if not refresh and pkg_id is not None and await db.is_fresh(pkg_id, settings.cache_ttl_seconds):
         return True
     res = await ingest_service.ingest(package)
-    return res.status is IngestStatus.INDEXED
+    if res.status is IngestStatus.INDEXED:
+        return True
+    if res.status is IngestStatus.STALE:
+        _mark_stale(res.synced_at)
+        return True
+    return False
 
 
 def _records_to_entries(rows: list[SqlRow]) -> list[ChangelogEntry]:

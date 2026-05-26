@@ -204,6 +204,21 @@ async def test_is_fresh_false_without_manifest(database: Database) -> None:
     assert not await database.is_fresh(pkg_id, ttl_seconds=3600)
 
 
+@pytest.mark.e2e
+async def test_get_synced_at_returns_timestamp(database: Database) -> None:
+    pkg_id = await database.upsert_package("test-synced-at")
+    await database.touch_manifest(pkg_id)
+    ts = await database.get_synced_at(pkg_id)
+    assert ts is not None
+    assert ts.tzinfo is not None
+
+
+@pytest.mark.e2e
+async def test_get_synced_at_missing_returns_none(database: Database) -> None:
+    pkg_id = await database.upsert_package("test-no-synced-at")
+    assert await database.get_synced_at(pkg_id) is None
+
+
 # ---------------------------------------------------------------------------
 # Semantic search (zero vector — just validates the query runs)
 # ---------------------------------------------------------------------------

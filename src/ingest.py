@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 
 import structlog
@@ -29,6 +30,7 @@ class IngestStatus(str, Enum):
     INDEXED = "indexed"
     EMPTY = "empty"
     INVALID = "invalid"
+    STALE = "stale"   # fetch failed, serving previously-cached rows
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class IngestResult:
     source: str = ""
     elapsed_s: float = 0.0
     error: str = ""
+    synced_at: datetime | None = None   # populated when status is STALE
 
 
 class IngestService:
@@ -75,6 +78,23 @@ class IngestService:
         result = await self._sources.fetch(package)
         if result.is_empty:
             elapsed = round(time.perf_counter() - t0, 3)
+            if result.fetch_failed:
+                stale = await self._stale_fallback(package)
+                if stale is not None:
+                    cached_count, synced_at = stale
+                    log.warning(
+                        "serving_stale",
+                        cached_entries=cached_count,
+                        synced_at=synced_at.isoformat() if synced_at else None,
+                        elapsed_s=elapsed,
+                    )
+                    return IngestResult(
+                        package=package,
+                        status=IngestStatus.STALE,
+                        entries=cached_count,
+                        elapsed_s=elapsed,
+                        synced_at=synced_at,
+                    )
             log.warning("no_entries_found", elapsed_s=elapsed)
             return IngestResult(
                 package=package,
@@ -115,3 +135,19 @@ class IngestService:
             source=result.source_name,
             elapsed_s=elapsed,
         )
+
+    async def _stale_fallback(
+        self, package: str
+    ) -> tuple[int, datetime | None] | None:
+        """If we have cached rows for *package*, return (count, synced_at).
+
+        Returns ``None`` when no cache exists (caller should report EMPTY).
+        """
+        pkg_id = await self._db.get_package_id(package)
+        if pkg_id is None:
+            return None
+        rows = await self._db.fetch_entries(pkg_id)
+        if not rows:
+            return None
+        synced_at = await self._db.get_synced_at(pkg_id)
+        return len(rows), synced_at
