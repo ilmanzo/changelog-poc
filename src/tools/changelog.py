@@ -125,7 +125,10 @@ async def get_changes_in_range(
         return msg
 
     pkg_id = await db.get_package_id(package)
-    assert pkg_id is not None  # queued_msg_or_none returned None -> package row exists
+    if pkg_id is None:
+        raise RuntimeError(
+            f"internal: package row missing for {package!r} after readiness probe"
+        )
     rows = await db.fetch_entries_in_range(pkg_id, since_dt, until_dt)
     entries = _records_to_entries(rows)
     _tlog(entries=len(entries))
