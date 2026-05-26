@@ -722,6 +722,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 27 | DD21 + N11 — Per-tool latency logging | Ride alongside R1 + N7; both modify `_tool_wrapper` |
 | 28 | DD24 + N13 — Nightly `pg_dump` + systemd timer | Pair with N5/N6 worker timers; same packaging dir |
 | 29 | DD22 — DB pool sizing bench | Phase 4 bench result; ship min=1/max=2 default until then |
+| 30 | Demo recording — `docs/demo/cli.tape` (vhs) + screen-recorded MCP-client track | Marketing artifact for blog post; tape exists, needs render |
 
 ## Post-PoC backlog (out of scope)
 
