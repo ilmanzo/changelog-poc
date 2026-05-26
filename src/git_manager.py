@@ -7,12 +7,14 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import structlog
 from async_lru import alru_cache
 
 from .config import settings
 from .process import run_subprocess
 
-_ALLOWED_SCHEMES = {"https", "git", "http"}
+_ALLOWED_SCHEMES = {"https", "git"}
+_logger = structlog.get_logger("rpm-mcp.git")
 
 
 class GitManager:
@@ -25,6 +27,9 @@ class GitManager:
             raise ValueError(
                 f"Unsupported URL scheme {parsed.scheme!r}: only {_ALLOWED_SCHEMES} allowed"
             )
+        if parsed.scheme == "git":
+            _logger.warning("insecure_git_scheme", url=url,
+                            note="git:// has no transport encryption or auth")
 
     def _safe_repo_path(self, package_name: str) -> Path:
         repo_path = (self.cache_dir / package_name).resolve()
