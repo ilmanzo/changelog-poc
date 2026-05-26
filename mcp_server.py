@@ -7,6 +7,7 @@ to the wrapper's terminal ``tool_done`` / ``tool_error`` log record.
 """
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextvars
 import functools
@@ -14,6 +15,7 @@ import inspect
 import logging
 import os
 import re
+import sys
 import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -795,9 +797,226 @@ async def get_openqa_tests(package: str) -> str:
     return "\n".join(lines)
 
 
+@mcp.tool()
+@_tool_wrapper("get_sync_status")
+async def get_sync_status(
+    package: str | None = None,
+    threshold_days: int = 7,
+) -> str:
+    """Show sync age for indexed packages; flag those older than *threshold_days*.
+
+    If *package* is given, report only that package. Otherwise reports all
+    packages in the manifest, sorted oldest-first.
+    """
+    names = [package] if package else None
+    rows = await db.get_sync_ages(names)
+    _tlog(count=len(rows))
+
+    if not rows:
+        target = f"'{package}'" if package else "any package"
+        return f"No sync record found for {target}. Run sync-package first."
+
+    threshold_s = threshold_days * 86400
+    stale = [r for r in rows if int(r["age_seconds"]) >= threshold_s]
+    fresh = [r for r in rows if int(r["age_seconds"]) < threshold_s]
+
+    def _fmt_age(seconds: Any) -> str:
+        s = int(seconds)
+        if s < 3600:
+            return f"{s // 60}m ago"
+        if s < 86400:
+            return f"{s // 3600}h ago"
+        return f"{s // 86400}d ago"
+
+    lines = [
+        f"Sync status — threshold: {threshold_days}d"
+        f" | total: {len(rows)} | fresh: {len(fresh)} | stale: {len(stale)}",
+        "",
+    ]
+    if stale:
+        lines.append(f"  STALE (>{threshold_days}d):")
+        for r in stale:
+            lines.append(f"    ⚠  {r['name']:<40} {_fmt_age(r['age_seconds'])}")
+        lines.append("")
+    if fresh:
+        lines.append(f"  FRESH (<{threshold_days}d):")
+        for r in fresh:
+            lines.append(f"    ✓  {r['name']:<40} {_fmt_age(r['age_seconds'])}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+@_tool_wrapper("find_core_packages")
+async def find_core_packages(
+    n: int = 50,
+    seed_pattern: str = "base",
+    expand: bool = True,
+) -> str:
+    """Identify the *n* most important distro packages by reverse-dependency count.
+
+    Seeds from the given pattern (default: base), optionally expands one hop of
+    transitive deps to surface hidden-but-fundamental packages (e.g. glibc), then
+    ranks the candidate pool by how many installed packages require each one.
+    Pattern meta-packages (patterns-*) are excluded from results.
+    """
+    n = max(1, min(n, 200))
+
+    seed_pkgs = await rpm_mgr.find_pattern_packages(seed_pattern)
+    if not seed_pkgs:
+        return (
+            f"Pattern '{seed_pattern}' not found in the local RPM database. "
+            "Try 'base', 'enhanced_base', or check `rpm -q --whatprovides 'pattern():<name>'`."
+        )
+    _tlog(seed_count=len(seed_pkgs))
+
+    candidates: set[str] = set(seed_pkgs)
+    if expand:
+        dep_results = await asyncio.gather(
+            *(rpm_mgr.get_dependencies(p) for p in seed_pkgs),
+            return_exceptions=True,
+        )
+        for res in dep_results:
+            if isinstance(res, frozenset):
+                candidates.update(res)
+
+    candidates = {p for p in candidates if not p.startswith("patterns-")}
+    _tlog(candidate_count=len(candidates))
+
+    rdep_results = await asyncio.gather(
+        *(rpm_mgr.get_reverse_dependencies(p) for p in candidates),
+        return_exceptions=True,
+    )
+    scored: list[tuple[int, str]] = []
+    for pkg, res in zip(candidates, rdep_results):
+        if isinstance(res, frozenset):
+            scored.append((len(res), pkg))
+
+    scored.sort(reverse=True)
+    top = scored[:n]
+    _tlog(result_count=len(top))
+
+    width = len(str(len(top)))
+    lines = [
+        f"Core packages seeded from '{seed_pattern}' pattern"
+        f" (top {len(top)} of {len(scored)} candidates by reverse-dep count):",
+        "",
+    ]
+    for rank, (count, pkg) in enumerate(top, 1):
+        lines.append(f"  {rank:{width}}. {pkg:<40} (required by {count} packages)")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+_CLI_TOOL_FUNCS: list[Callable[..., Awaitable[str]]] = [
+    analyze_package_diff,
+    get_recent_releases,
+    get_changes_in_range,
+    get_dependencies,
+    get_reverse_dependencies,
+    find_cve,
+    get_dependency_changes,
+    sync_package,
+    semantic_search,
+    fts_search,
+    list_cves,
+    find_bug,
+    list_bugs,
+    get_spec_details,
+    get_news,
+    get_openqa_tests,
+    find_core_packages,
+    get_sync_status,
+]
+
+
+def _resolve_param_type(annotation: str) -> tuple[type, bool]:
+    """Parse annotation string → (python_type, is_optional)."""
+    s = annotation.strip()
+    is_optional = "None" in s
+    s = s.replace("| None", "").replace("None |", "").replace("Optional[", "").rstrip("]").strip()
+    return {"str": str, "int": int, "float": float, "bool": bool}.get(s, str), is_optional
+
+
+def _build_cli_parser() -> tuple[argparse.ArgumentParser, dict[str, Callable[..., Awaitable[str]]]]:
+    parser = argparse.ArgumentParser(
+        prog=os.path.basename(sys.argv[0]),
+        description="rpm-mcp — invoke a tool directly (CLI) or run as MCP server (default).",
+    )
+    subparsers = parser.add_subparsers(dest="tool", metavar="TOOL")
+    subparsers.add_parser("serve", help="Run as MCP stdio server (same as invoking with no subcommand).")
+
+    func_map: dict[str, Callable[..., Awaitable[str]]] = {}
+    for fn in _CLI_TOOL_FUNCS:
+        cmd = fn.__name__.replace("_", "-")
+        func_map[cmd] = fn
+        sig = inspect.signature(fn)
+        doc_line = (fn.__doc__ or "").strip().splitlines()[0].replace("%", "%%") if fn.__doc__ else ""
+        sub = subparsers.add_parser(cmd, help=doc_line)
+
+        for pname, param in sig.parameters.items():
+            ann = str(param.annotation)
+            py_type, is_optional = _resolve_param_type(ann)
+            has_default = param.default is not inspect.Parameter.empty
+            flag = f"--{pname.replace('_', '-')}"
+
+            if py_type is bool:
+                default_bool = param.default if has_default else False
+                if default_bool:
+                    sub.add_argument(
+                        f"--no-{pname.replace('_', '-')}",
+                        dest=pname,
+                        action="store_false",
+                        default=True,
+                    )
+                else:
+                    sub.add_argument(flag, action="store_true", default=False)
+            elif has_default or is_optional:
+                kw: dict[str, Any] = {"default": param.default if has_default else None}
+                if py_type in (str, int, float):
+                    kw["type"] = py_type
+                sub.add_argument(flag, **kw)
+            else:
+                kw = {}
+                if py_type in (str, int, float):
+                    kw["type"] = py_type
+                sub.add_argument(pname, **kw)
+
+    return parser, func_map
+
+
 if __name__ == "__main__":
-    transport = os.environ.get("MCP_TRANSPORT", "stdio")
-    if transport == "sse":
-        mcp.run(transport="sse")
+    parser, func_map = _build_cli_parser()
+    ns = parser.parse_args()
+
+    if ns.tool is None or ns.tool == "serve":
+        transport = os.environ.get("MCP_TRANSPORT", "stdio")
+        if transport == "sse":
+            mcp.run(transport="sse")
+        else:
+            mcp.run()
     else:
-        mcp.run()
+        async def _run_cli() -> None:
+            db_connected = False
+            try:
+                await db.connect()
+                db_connected = True
+            except Exception as exc:
+                _logger.warning("db_unavailable_cli", error=str(exc))
+            try:
+                kwargs = {
+                    k.replace("-", "_"): v
+                    for k, v in vars(ns).items()
+                    if k != "tool"
+                }
+                result = await func_map[ns.tool](**kwargs)
+                print(result)
+            finally:
+                await source_registry.close()
+                if db_connected:
+                    await db.close()
+
+        asyncio.run(_run_cli())
