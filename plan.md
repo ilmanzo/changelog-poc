@@ -708,7 +708,7 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 13 | N5 + N6 + DD6 — Worker daemon + systemd units [done] | Phase 4/5 production work |
 | 14 | DD12 + N2 — Tiered cache TTL [done] | Worker work continues |
 | 15 | S2, S3, S5, S6 [done] | Security cleanup batch |
-| 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc | Defense-in-depth follow-up |
+| 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc | Defense-in-depth follow-up (b/d/e done; h pending) |
 | 17 | B2, B3, B4 | Minor bug batch |
 | 18 | R5–R10 | Refactor cleanup batch |
 | 19 | DD13 — HNSW bench + tune to <500ms p95 | Phase 4 tuning; needs realistic data volume first |
