@@ -1,4 +1,4 @@
-"""Unit tests for P2+DD3: stale-data fallback + ⚠ warning banner."""
+"""Unit tests for P2+DD3: stale-data fallback + WARNING banner."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -97,7 +97,7 @@ def test_stale_banner_includes_timestamp() -> None:
 
     msg = _stale_banner(_SYNCED_AT)
 
-    assert msg.startswith("⚠")
+    assert msg.startswith("WARNING:")
     assert "2024-01-15" in msg
     assert msg.endswith("\n\n")
 
@@ -120,7 +120,7 @@ async def test_tool_wrapper_prepends_banner_when_marked_stale() -> None:
 
     out = await tool(package="vim")
 
-    assert out.startswith("⚠")
+    assert out.startswith("WARNING:")
     assert out.endswith("body")
 
 
@@ -152,7 +152,7 @@ async def test_tool_wrapper_isolates_stale_state_between_calls() -> None:
     first = await stale_tool(package="vim")
     second = await clean_tool(package="vim")
 
-    assert first.startswith("⚠")
+    assert first.startswith("WARNING:")
     assert second == "body"
 
 

@@ -113,7 +113,7 @@ _log_extras: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
 )
 
 # Why: per-task flag set when _ensure_or_queue fell back to stale cached data.
-# _tool_wrapper reads it post-call and prepends a one-line ⚠ banner.
+# _tool_wrapper reads it post-call and prepends a one-line WARNING banner.
 _stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar(
     "_stale_state", default=None
 )
@@ -131,7 +131,7 @@ def _mark_stale(synced_at: datetime | None) -> None:
 
 def _stale_banner(synced_at: datetime | None) -> str:
     ts = synced_at.isoformat() if synced_at else "unknown timestamp"
-    return f"⚠ Source fetch failed; serving cached data from {ts}\n\n"
+    return f"WARNING: source fetch failed; serving cached data from {ts}\n\n"
 
 
 def _tool_wrapper(tool_name: str) -> Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]]:
