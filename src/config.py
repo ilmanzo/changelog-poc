@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     obs_timeout_connect: int = 10
     obs_max_retries: int = 3
 
+    # Subprocess (rpm, git, etc.)
+    subprocess_timeout_s: int = 60
+
     # Worker (centralised ingestion)
     worker_concurrency: int = 10
 
