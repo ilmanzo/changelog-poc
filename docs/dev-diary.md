@@ -78,7 +78,7 @@ the same data.
 
 ---
 
-## Day 1 -- From zero to working MCP server (Sunday 25 May)
+## Day 1 -- From zero to working MCP server (Monday 25 May 2026)
 
 The first design decision set the tone for everything else: **one Postgres instead of two separate stores**.
 
@@ -134,7 +134,7 @@ that generated code still needs a human pass.
 
 ---
 
-## Day 2 -- Spec assistant, news, and openQA (Monday 26 May)
+## Day 2 -- Spec assistant, news, and openQA (Tuesday 26 May 2026)
 
 Day 2 was about making the server genuinely useful for the spec-analysis use case.
 
@@ -151,7 +151,7 @@ The cost/complexity ratio was wrong for a three-day sprint. Deferred.
 
 ---
 
-## Day 3 -- 0 to 257 tests (Tuesday 27 May)
+## Day 3 -- 0 to 257 tests (Wednesday 27 May 2026)
 
 The repo started day 3 with 35 end-to-end tests driven by gemini-cli -- slow, fragile, and useless
 for CI without the full stack running. Zero unit tests.
