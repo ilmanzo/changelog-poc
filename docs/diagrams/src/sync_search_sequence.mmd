@@ -1,0 +1,35 @@
+%%{init: {"theme": "neutral"}}%%
+sequenceDiagram
+    participant C as MCP client
+    participant T as FastMCP tool
+    participant I as IngestService
+    participant SR as SourceRegistry
+    participant RS as RpmSource
+    participant E as Embedder (fastembed)
+    participant DB as Database (asyncpg)
+    participant PG as PostgreSQL + pgvector
+
+    C->>T: sync_package("vim")
+    T->>I: ingest("vim")
+    I->>SR: fetch("vim")
+    SR->>RS: fetch("vim")
+    Note right of RS: local, runs first
+    RS-->>SR: ChangelogEntry[] from rpm -q
+    SR-->>I: FetchResult (waterfall stops here on hit)
+    I->>E: embed_batch(entry.content)
+    Note right of E: asyncio.to_thread -> ONNX
+    E-->>I: list[list[float]]  (384-dim)
+    I->>DB: upsert_changelog_entries(entries, embeddings)
+    DB->>PG: INSERT ... ON CONFLICT (id) DO NOTHING
+    DB->>DB: touch_manifest(package_id, kind="changelog")
+    I-->>T: IngestResult(INDEXED, entries=N, source="rpm")
+    T-->>C: "Successfully indexed N entries for vim"
+
+    C->>T: semantic_search("memory leak fix", limit=5)
+    T->>E: embed_one("memory leak fix")
+    E-->>T: query_vector[384]
+    T->>DB: semantic_search(query_vector, limit=5)
+    DB->>PG: ORDER BY embedding <=> $1::vector LIMIT 5
+    PG-->>DB: rows (package, version, entry_date, content, distance)
+    DB-->>T: list[Record]
+    T-->>C: formatted text with top-5 entries

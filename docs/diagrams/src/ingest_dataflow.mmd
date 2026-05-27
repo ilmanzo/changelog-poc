@@ -1,0 +1,15 @@
+%%{init: {"flowchart": {"htmlLabels": false, "curve": "linear"}, "theme": "neutral"}}%%
+flowchart TD
+    A["rpm -q --changelog vim"] --> B
+    B["RpmSource.fetch()"] --> C
+    C["IngestService.ingest()"] --> D
+    C --> E
+    D["_resolve_upstream_url (optional)<br/>url_router.parse_upstream_url ->\nReleaseSource | None"]
+    D --> F["GitHubSource | GitLabSource\nreleases merged in"]
+    E["embed_batch(content)<br/>fastembed ONNX in asyncio.to_thread"]
+    E --> G["384-dim vectors per entry"]
+    F --> H
+    G --> H["db.upsert_changelog_entries()<br/>uuid5(PKG_NAMESPACE, package + content)<br/>ON CONFLICT (id) DO NOTHING"]
+    H --> I["changelog_entries<br/>(tsv GENERATED ALWAYS)"]
+    I --> J["HNSW on embedding<br/>sub-100ms p95 at 650k vectors"]
+    I --> K["GIN on tsv<br/>plainto_tsquery FTS"]

@@ -1,0 +1,55 @@
+%%{init: {"flowchart": {"htmlLabels": false, "curve": "linear"}, "theme": "neutral"}}%%
+flowchart TD
+    subgraph clients["MCP client layer (stdio, one process per user)"]
+        C1["Claude Desktop / Code"]
+        C2["Gemini CLI"]
+        C3["Any MCP-compatible client"]
+    end
+
+    clients -- "JSON-RPC over stdio" --> SERVER
+
+    subgraph SERVER["mcp_server.py (FastMCP)"]
+        direction TB
+        TOOLS["21 tools across src/tools/:<br/>changelog (12) | deps (4) | spec (1) | news (4)<br/><br/>_tool_wrapper: structlog ctxvars,<br/>stale banner, untrusted envelope,<br/>fast-fail probe via _Readiness"]
+        LIFESPAN["Lifespan:<br/>db.connect() -> yield -><br/>source_registry.close() -> db.close()"]
+    end
+
+    SERVER --> DB
+    SERVER --> INGEST
+    SERVER --> MGRS
+
+    DB["Database (src/db.py)<br/>asyncpg pool +<br/>pgvector codec"]
+
+    subgraph INGEST_BOX["IngestService (src/ingest.py)"]
+        INGEST["fetch -> embed -> upsert"]
+        ENRICH["_resolve_upstream_url ->\nurl_router.parse_upstream_url"]
+        INGEST --> ENRICH
+    end
+
+    MGRS["RPMManager / GitManager<br/>rpm -q (timeout-capped)<br/>shallow git clone, tag lookup"]
+
+    INGEST_BOX --> REGISTRY
+
+    subgraph REGISTRY["SourceRegistry (src/sources/)"]
+        direction TB
+        STRAT["strategy: waterfall | parallel"]
+        LOCAL["RpmSource (local, runs first)<br/>rpm -q --changelog"]
+        NET["ObsSource, GiteaSource,<br/>FedoraSource, UbuntuSource<br/>(HttpSource base: tenacity retries,<br/>SourceNotFound on 404)"]
+        STRAT --> LOCAL
+        STRAT --> NET
+    end
+
+    ENRICH -. "instantiated per URL,<br/>not registered" .-> RELEASE
+    RELEASE["ReleaseSource base:<br/>GitHubSource, GitLabSource<br/>(activated by url_router)"]
+
+    SERVER -. "separate channels" .-> SPEC
+    SERVER -.-> NEWS
+    SERVER -.-> OPENQA
+
+    SPEC["SpecSource ABC:<br/>ObsSpecSource, PagureSpecSource"]
+    NEWS["news_fetcher.py:<br/>fetch_bodhi, fetch_opensuse_news"]
+    OPENQA["openqa_fetcher.py:<br/>local os-autoinst checkout"]
+
+    DB --> PG
+
+    PG["PostgreSQL 17 (pgvector/pgvector:pg17)<br/><br/>packages (name, distro)<br/>changelog_entries (uuid5 PK, tsv, embedding 384d)<br/>specs / spec_sections (embedding 384d)<br/>news / openqa_tests / deps / manifest<br/><br/>Indexes: HNSW on embeddings, GIN on tsv, pg_trgm"]

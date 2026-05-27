@@ -1,0 +1,14 @@
+%%{init: {"theme": "neutral"}}%%
+sequenceDiagram
+    participant C as MCP client
+    participant T as FastMCP tool
+    participant PW as parse_when()
+    participant DB as Database
+
+    C->>T: fts_search("buffer overflow", since="2023-01-01")
+    T->>PW: parse_when("2023-01-01")
+    PW-->>T: datetime(2023,1,1, tzinfo=UTC)
+    T->>DB: fts_search("buffer overflow", limit=10, since=datetime(...))
+    DB->>DB: plainto_tsquery('english', $1) AND entry_date >= $3
+    DB-->>T: rows ordered by ts_rank DESC
+    T-->>C: formatted entries with dates >= 2023-01-01
