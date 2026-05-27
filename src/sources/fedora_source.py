@@ -64,9 +64,9 @@ class FedoraSource(HttpSource):
         spec_url = f"{self._API_BASE}/rpms/{package}/raw/{branch}/f/{package}.spec"
         spec_text = await self._fetch_text(spec_url)
 
-        changelog_text = extract_changelog_section(spec_text)
-        if not changelog_text:
+        section = extract_changelog_section(spec_text)
+        if not section:
             raise SourceNotFound(f"no changelog for {package} in Fedora dist-git")
 
-        entries = _parse_changelog(changelog_text, package)
+        entries = _parse_changelog(section, package)
         return FetchResult(entries=entries, source_name=self.name, distro="fedora")
