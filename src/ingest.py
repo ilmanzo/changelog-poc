@@ -256,15 +256,21 @@ class IngestService:
         return inserted
 
     async def _resolve_upstream_url(self, package: str) -> str | None:
-        """Try OBS spec header and _service file to find a forge URL."""
+        """Try OBS spec header and _service file to find a forge URL.
+
+        Hardcoded to openSUSE:Factory because OBS is the only forge in our
+        registry that publishes raw spec + _service over a stable HTTP path.
+        For other distros (Fedora dist-git, Ubuntu Launchpad) the upstream
+        URL has to come from the spec/control file already parsed by their
+        respective Source. Returns None for any non-openSUSE call, which
+        makes the enrichment path a quiet no-op there.
+        """
         import aiohttp as _aiohttp
 
         from .http_utils import make_client_session
         from .service_file_parser import extract_urls_from_service
         from .spec_url_extractor import extract_upstream_urls
 
-        # Only openSUSE OBS exposes spec + _service; for distro=fedora this
-        # call returns no URL and the upstream-enrichment path is a no-op.
         base = "https://api.opensuse.org/public/source/openSUSE:Factory"
 
         async with make_client_session() as session:

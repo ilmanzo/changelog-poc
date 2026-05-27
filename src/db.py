@@ -459,6 +459,9 @@ class Database:
             )
 
     async def upsert_openqa(self, tests: Iterable[OpenQATest]) -> int:
+        """Bulk upsert openQA test rows. Implicitly calls ``upsert_package``
+        for every referenced ``package_name`` so callers don't have to.
+        """
         rows: list[tuple[Any, ...]] = []
         for t in tests:
             pkg_id = await self.upsert_package(t.package_name)
@@ -601,6 +604,12 @@ class Database:
     async def is_fresh(
         self, package_id: int, ttl_seconds: int, kind: str = "changelog"
     ) -> bool:
+        """True if the manifest row exists and is younger than *ttl_seconds*.
+
+        Returns False both when the entry is stale and when no manifest row
+        exists at all -- callers treat "never ingested" as "not fresh", which
+        triggers the same ingest path.
+        """
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT synced_at FROM manifest WHERE package_id = $1 AND kind = $2",
