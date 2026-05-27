@@ -7,6 +7,7 @@ from .gitea_source import GiteaSource
 from .obs_source import ObsSource
 from .registry import FetchStrategy, SourceRegistry
 from .rpm_source import RpmSource
+from .ubuntu_source import UbuntuSource
 
 __all__ = [
     "ChangelogSource",
@@ -19,4 +20,5 @@ __all__ = [
     "SourceError",
     "SourceNotFound",
     "SourceRegistry",
+    "UbuntuSource",
 ]
