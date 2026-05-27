@@ -614,7 +614,7 @@ class Database:
         kinds only purge their manifest entry (specs evict via the worker's
         respec flow). Returns evicted package names.
         """
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire() as conn, conn.transaction():
             rows = await conn.fetch(
                 """
                 SELECT p.id, p.name FROM packages p
