@@ -29,9 +29,45 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
     "pytest-cov>=7.1.0",
+    "ruff>=0.8",
     "testcontainers[postgres]>=4.14.2",
     "types-defusedxml>=0.7.0.20260504",
 ]
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+extend-exclude = ["legacy", ".venv", "infra"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",           # pyflakes
+    "I",           # isort
+    "UP",          # pyupgrade
+    "B",           # flake8-bugbear (CR6 BaseException, CR7 bare except)
+    "SIM",         # flake8-simplify
+    "RUF",         # ruff-specific
+    "ASYNC",       # async/await issues (CR1: sync calls in async fns)
+    "S",           # flake8-bandit security checks (CR3 SSRF, CR5 subprocess)
+    "PTH",         # pathlib over os.path
+]
+ignore = [
+    "E501",        # line length -- enforced by formatter
+    "S101",        # asserts allowed (tests + invariants)
+    "B008",        # function call in argument defaults -- fastmcp/pydantic Field()
+    "SIM108",      # ternary over if/else -- not always clearer
+    "RUF012",      # mutable class attrs -- pydantic Settings uses these
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B", "ASYNC", "SIM"]
+"scripts/**" = ["S"]
+"mcp_server.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.mypy]
 python_version = "3.13"
