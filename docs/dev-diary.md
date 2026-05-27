@@ -42,7 +42,7 @@ For gemini-cli it's a few lines in `~/.gemini/settings.json`:
 ```json
 {
   "mcpServers": {
-    "rpm-mcp": {
+    "rpm": {
       "command": "uv",
       "args": ["run", "mcp_server.py"],
       "cwd": "/path/to/rpm-mcp"

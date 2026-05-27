@@ -41,7 +41,7 @@ For Claude Code it's three lines in `.claude/settings.json`:
 {{< highlight json >}}
 {
   "mcpServers": {
-    "rpm-mcp": {
+    "rpm": {
       "command": "uv",
       "args": ["run", "mcp_server.py"],
       "cwd": "/path/to/rpm-mcp"

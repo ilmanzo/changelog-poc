@@ -6,7 +6,7 @@
 # to override the default DSN baked into the registration.
 set -euo pipefail
 
-SERVER_NAME="rpm-mcp"
+SERVER_NAME="rpm"
 REPO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 GEMINI_SETTINGS="${HOME}/.gemini/settings.json"
 DB_URL="${DATABASE_URL:-postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp}"

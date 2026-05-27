@@ -21,7 +21,7 @@ configure_logging(
     json_logs=settings.log_format.lower() == "json",
 )
 
-mcp = FastMCP("rpm-mcp", lifespan=lifespan)
+mcp = FastMCP("rpm", lifespan=lifespan)
 register_all(mcp)
 
 
