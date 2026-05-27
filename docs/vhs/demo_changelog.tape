@@ -12,4 +12,4 @@ Enter
 Sleep 10s
 Type "what are the recent security-related changelog entries for openssl?"
 Enter
-Sleep 120s
+Sleep 3m

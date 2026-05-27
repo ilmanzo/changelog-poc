@@ -12,4 +12,4 @@ Enter
 Sleep 10s
 Type "show me 5 packages with important changes in the last 3 months that dont have test covering those new features"
 Enter
-Sleep 120s
+Sleep 3m

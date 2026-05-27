@@ -12,4 +12,4 @@ Enter
 Sleep 10s
 Type "find changelog entries mentioning CVE fixes for network packages in the last 6 months"
 Enter
-Sleep 120s
+Sleep 3m
