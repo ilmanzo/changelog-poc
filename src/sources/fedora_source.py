@@ -7,6 +7,7 @@ changelog format (``* Day Mon DD YYYY Author - version``).
 
 from __future__ import annotations
 
+import json
 import re
 
 from async_lru import alru_cache
@@ -46,9 +47,6 @@ class FedoraSource(HttpSource):
     async def fetch(self, package: str) -> FetchResult:
         meta_url = f"{self._API_BASE}/api/0/rpms/{package}"
         meta_text = await self._fetch_text(meta_url)
-
-        import json
-
         meta = json.loads(meta_text)
         branch = meta.get("default_branch", "rawhide")
 
