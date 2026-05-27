@@ -4,6 +4,7 @@ User-facing error templates, package readiness probe, formatters for
 match/listing tables, and the `_Readiness` enum returned by
 `_ensure_or_queue` (DD10 fast-fail path).
 """
+
 from __future__ import annotations
 
 import re
@@ -25,8 +26,7 @@ from src.version_utils import BSC_RE, CVE_RE, parse_when
 MSG_PKG_NOT_FOUND = "Package '{}' not found in any source (local RPM, OBS, src.opensuse.org)."
 MSG_PKG_NOT_FOUND_SHORT = "Package '{}' not found in any source."
 MSG_PKG_QUEUED = (
-    "Package '{}' is not yet indexed; ingestion has been queued. "
-    "Retry this call in a few seconds."
+    "Package '{}' is not yet indexed; ingestion has been queued. Retry this call in a few seconds."
 )
 MSG_INVALID_CVE = "Invalid CVE ID '{}'. Expected CVE-YYYY-NNNN(NNN)."
 MSG_INVALID_BUG = "Invalid bug ID '{}'. Expected bsc#NNNNNN, boo#NNNNNN, or bnc#NNNNNN."
@@ -95,15 +95,12 @@ def _format_match_rows(rows: list[SqlRow], header: str) -> str:
     lines = [header]
     for r in rows:
         lines.append(
-            f"\n--- {r['package']} {r['version']} "
-            f"({_format_date(r['entry_date'])}) ---\n{r['content']}"
+            f"\n--- {r['package']} {r['version']} ({_format_date(r['entry_date'])}) ---\n{r['content']}"
         )
     return "\n".join(lines)
 
 
-def _format_listing_rows(
-    rows: list[SqlRow], header: str, pattern: re.Pattern[str]
-) -> str:
+def _format_listing_rows(rows: list[SqlRow], header: str, pattern: re.Pattern[str]) -> str:
     """list_cves / list_bugs: version (date) — extracted IDs + 400-char preview."""
     lines = [header]
     for r in rows:
@@ -119,8 +116,8 @@ def _format_listing_rows(
 # Readiness probe (DD10 fast-fail)
 # ---------------------------------------------------------------------------
 class _Readiness(Enum):
-    READY = "ready"     # caller may read cached rows
-    QUEUED = "queued"   # never-indexed package — background ingest dispatched
+    READY = "ready"  # caller may read cached rows
+    QUEUED = "queued"  # never-indexed package — background ingest dispatched
 
 
 async def _ensure_or_queue(package: str, refresh: bool = False) -> _Readiness:
@@ -133,9 +130,7 @@ async def _ensure_or_queue(package: str, refresh: bool = False) -> _Readiness:
     if pkg_id is None:
         ingest_service.schedule(package)
         return _Readiness.QUEUED
-    if not refresh and await db.is_fresh(
-        pkg_id, settings.cache_ttl_changelog_s, kind="changelog"
-    ):
+    if not refresh and await db.is_fresh(pkg_id, settings.cache_ttl_changelog_s, kind="changelog"):
         return _Readiness.READY
     res = await ingest_service.ingest(package)
     if res.status is IngestStatus.STALE:

@@ -3,6 +3,7 @@
 Both ObsSource and GiteaSource share this format, so the parser lives at the
 top of ``src/`` rather than being duplicated in each class.
 """
+
 from __future__ import annotations
 
 import re
@@ -16,9 +17,7 @@ _BLOCK_SPLIT = re.compile(r"^-{67}$", re.MULTILINE)
 # Why: timezone abbreviation length is 3 to 5 chars (UTC=3, CEST/AEST=4, AEDT=4,
 # WEST=4, MSKT=4, NZDST=5). The original {3} silently dropped non-3-char-TZ
 # entries because the regex never matched and the block was discarded.
-_HEADER_RE = re.compile(
-    r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3,5} \d{4}) - (.*)$"
-)
+_HEADER_RE = re.compile(r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3,5} \d{4}) - (.*)$")
 
 # Why: precedence matters — first match wins. The explicit "update/upgrade to version X"
 # patterns are checked before the looser "version X" / "for X" fallbacks so a changelog
@@ -71,11 +70,13 @@ def parse_obs_changes(
                 pkg_version = vm.group(1)
                 break
 
-        entries.append(ChangelogEntry(
-            version=pkg_version,
-            author=author.strip(),
-            date=dt,
-            content=content,
-        ))
+        entries.append(
+            ChangelogEntry(
+                version=pkg_version,
+                author=author.strip(),
+                date=dt,
+                content=content,
+            )
+        )
 
     return entries

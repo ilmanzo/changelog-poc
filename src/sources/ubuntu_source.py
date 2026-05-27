@@ -3,6 +3,7 @@
 Fetches the ``+changelog`` HTML page from Launchpad and extracts
 Debian-format changelog entries from ``<pre>`` blocks.
 """
+
 from __future__ import annotations
 
 import html
@@ -33,6 +34,8 @@ class UbuntuSource(HttpSource):
             return FetchResult(entries=[], source_name=self.name, distro="ubuntu")
         changelog_text = "\n\n".join(html.unescape(b) for b in blocks)
         entries = parse_debian_changelog(
-            changelog_text, package=package, source=self.name,
+            changelog_text,
+            package=package,
+            source=self.name,
         )
         return FetchResult(entries=entries, source_name=self.name, distro="ubuntu")

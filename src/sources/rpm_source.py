@@ -1,4 +1,5 @@
 """Changelog source: local RPM database."""
+
 from __future__ import annotations
 
 from async_lru import alru_cache

@@ -1,4 +1,5 @@
 """Changelog source: GitLab release notes via the REST API."""
+
 from __future__ import annotations
 
 import re
@@ -11,14 +12,16 @@ from .release_source import ReleaseProvider, ReleaseSource
 # Hardcoded allowlist of known GitLab instances. The regex on its own
 # (host + 2-segment path) would accept arbitrary hosts, which is an
 # SSRF surface when the URL comes from an untrusted spec file.
-_GITLAB_HOSTS: frozenset[str] = frozenset({
-    "gitlab.com",
-    "gitlab.gnome.org",
-    "gitlab.freedesktop.org",
-    "gitlab.xfce.org",
-    "invent.kde.org",
-    "salsa.debian.org",
-})
+_GITLAB_HOSTS: frozenset[str] = frozenset(
+    {
+        "gitlab.com",
+        "gitlab.gnome.org",
+        "gitlab.freedesktop.org",
+        "gitlab.xfce.org",
+        "invent.kde.org",
+        "salsa.debian.org",
+    }
+)
 
 _GITLAB_REPO_RE = re.compile(r"https?://([^/]+)/(.+?)(?:\.git)?/?$")
 
@@ -71,7 +74,4 @@ class GitLabSource(ReleaseSource):
     def _api_url(self) -> str:
         host, project_path = self._url_parts
         encoded = quote_plus(project_path)
-        return (
-            f"https://{host}/api/v4/projects/{encoded}"
-            f"/releases?per_page=100"
-        )
+        return f"https://{host}/api/v4/projects/{encoded}/releases?per_page=100"

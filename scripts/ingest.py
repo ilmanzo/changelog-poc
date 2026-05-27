@@ -7,6 +7,7 @@
 
 Exit codes: 0 if every package INDEXED, 1 if any EMPTY/INVALID, 2 on unhandled error.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,10 +35,10 @@ from src.sources import (
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("packages", nargs="*", help="Package names to ingest")
-    p.add_argument("--file", "-f", type=Path,
-                   help="Read package names from a file (one per line, # comments OK)")
-    p.add_argument("--concurrency", "-c", type=int, default=2,
-                   help="Max concurrent ingestions (default: 2)")
+    p.add_argument(
+        "--file", "-f", type=Path, help="Read package names from a file (one per line, # comments OK)"
+    )
+    p.add_argument("--concurrency", "-c", type=int, default=2, help="Max concurrent ingestions (default: 2)")
     p.add_argument("--debug", action="store_true", help="Verbose logging")
     return p.parse_args()
 

@@ -7,6 +7,7 @@ Real packages, real Postgres+pgvector. End-to-end wall time.
     uv run scripts/bench.py search --concurrency 8
     uv run scripts/bench.py both
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,8 +35,16 @@ from src.sources import (
 )
 
 DEFAULT_INGEST_PACKAGES = [
-    "chrony", "openssh", "systemd", "bash", "curl",
-    "vim", "nginx", "postgresql", "git", "kernel-default",
+    "chrony",
+    "openssh",
+    "systemd",
+    "bash",
+    "curl",
+    "vim",
+    "nginx",
+    "postgresql",
+    "git",
+    "kernel-default",
 ]
 
 DEFAULT_SEARCH_QUERIES = [
@@ -92,9 +101,7 @@ def _print_report(title: str, samples: list[Sample]) -> None:
         print(f"  {s.label:<30} {s.elapsed_ms:>10.1f}  {status}")
 
 
-async def bench_ingest(
-    service: IngestService, packages: list[str], concurrency: int
-) -> list[Sample]:
+async def bench_ingest(service: IngestService, packages: list[str], concurrency: int) -> list[Sample]:
     sem = asyncio.Semaphore(concurrency)
 
     async def _one(pkg: str) -> Sample:

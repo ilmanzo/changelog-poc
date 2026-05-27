@@ -12,6 +12,7 @@ Each entry looks like::
 
 Entries are separated by blank lines between the trailer and the next header.
 """
+
 from __future__ import annotations
 
 import re
@@ -21,13 +22,9 @@ from email.utils import parsedate_to_datetime
 from .models import ChangelogEntry
 from .sanitize import scrub_external
 
-_HEADER_RE = re.compile(
-    r"^(\S+)\s+\(([^)]+)\)\s+([^;]+);\s+urgency=(\S+)"
-)
+_HEADER_RE = re.compile(r"^(\S+)\s+\(([^)]+)\)\s+([^;]+);\s+urgency=(\S+)")
 
-_TRAILER_RE = re.compile(
-    r"^\s+--\s+(.+?)\s{2,}(.+)$"
-)
+_TRAILER_RE = re.compile(r"^\s+--\s+(.+?)\s{2,}(.+)$")
 
 
 def parse_debian_changelog(
@@ -63,12 +60,14 @@ def parse_debian_changelog(
 
             content = "\n".join(current_lines).strip()
             if content:
-                entries.append(ChangelogEntry(
-                    version=current_version,
-                    author=author,
-                    date=dt,
-                    content=content,
-                ))
+                entries.append(
+                    ChangelogEntry(
+                        version=current_version,
+                        author=author,
+                        date=dt,
+                        content=content,
+                    )
+                )
             in_entry = False
             continue
 

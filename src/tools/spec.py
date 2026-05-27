@@ -1,4 +1,5 @@
 """Spec tools: AST-parsed sections of a package's .spec file."""
+
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
@@ -13,16 +14,12 @@ from src.tools._helpers import MSG_UNKNOWN_SPEC_SOURCE
 from src.tools._wrap import _tlog, _tool_wrapper
 
 
-async def _ensure_spec(
-    package: str, source: str = "opensuse"
-) -> tuple[int, int, str, str] | None:
+async def _ensure_spec(package: str, source: str = "opensuse") -> tuple[int, int, str, str] | None:
     """Fetch + persist spec if missing or older than ``cache_ttl_spec_s``.
     Returns ``(package_id, spec_id, content, url)`` or ``None`` if no source has it.
     """
     pkg_id = await db.get_package_id(package)
-    if pkg_id is not None and await db.is_fresh(
-        pkg_id, settings.cache_ttl_spec_s, kind="spec"
-    ):
+    if pkg_id is not None and await db.is_fresh(pkg_id, settings.cache_ttl_spec_s, kind="spec"):
         cached = await db.get_spec(pkg_id, source)
         if cached:
             return pkg_id, int(cached["id"]), cached["content"], ""

@@ -1,4 +1,5 @@
 """Shared HTTP plumbing for network-backed changelog sources."""
+
 from __future__ import annotations
 
 import json
@@ -46,17 +47,13 @@ class HttpSource(ChangelogSource):
             await self._session.close()
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        self._session = await refresh_session(
-            self._session, headers=self._extra_headers
-        )
+        self._session = await refresh_session(self._session, headers=self._extra_headers)
         return self._session
 
     async def _fetch_text(self, url: str) -> str:
         """GET *url* with retries. SourceNotFound on 404, SourceError on 4xx/5xx."""
         async for attempt in AsyncRetrying(
-            retry=retry_if_exception_type(
-                (aiohttp.ServerConnectionError, aiohttp.ClientConnectionError)
-            ),
+            retry=retry_if_exception_type((aiohttp.ServerConnectionError, aiohttp.ClientConnectionError)),
             wait=wait_exponential(multiplier=1, min=1, max=30),
             stop=stop_after_attempt(settings.obs_max_retries),
             reraise=True,
@@ -67,15 +64,11 @@ class HttpSource(ChangelogSource):
                     if resp.status == 404:
                         raise SourceNotFound(url)
                     if 400 <= resp.status < 500:
-                        msg = self._STATUS_ERROR_MESSAGES.get(
-                            resp.status, f"HTTP {resp.status} for {url}"
-                        )
+                        msg = self._STATUS_ERROR_MESSAGES.get(resp.status, f"HTTP {resp.status} for {url}")
                         raise SourceError(msg)
                     if 500 <= resp.status < 600:
                         # Retried by tenacity until exhausted.
-                        raise aiohttp.ClientConnectionError(
-                            f"HTTP {resp.status} for {url}"
-                        )
+                        raise aiohttp.ClientConnectionError(f"HTTP {resp.status} for {url}")
                     if resp.status != 200:
                         raise SourceError(f"HTTP {resp.status} for {url}")
                     return await resp.text()

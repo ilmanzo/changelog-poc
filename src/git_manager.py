@@ -1,4 +1,5 @@
 """Shallow clones + tag/log extraction from upstream git repos."""
+
 from __future__ import annotations
 
 import asyncio
@@ -25,21 +26,16 @@ class GitManager:
     def _validate_url(self, url: str) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in _ALLOWED_SCHEMES:
-            raise ValueError(
-                f"Unsupported URL scheme {parsed.scheme!r}: only {_ALLOWED_SCHEMES} allowed"
-            )
+            raise ValueError(f"Unsupported URL scheme {parsed.scheme!r}: only {_ALLOWED_SCHEMES} allowed")
         if parsed.scheme == "git":
-            _logger.warning("insecure_git_scheme", url=url,
-                            note="git:// has no transport encryption or auth")
+            _logger.warning("insecure_git_scheme", url=url, note="git:// has no transport encryption or auth")
 
     def _safe_repo_path(self, package_name: str) -> Path:
         validate_package_name(package_name)
         repo_path = (self.cache_dir / package_name).resolve()
         cache_root = self.cache_dir.resolve()
         if not repo_path.is_relative_to(cache_root) or repo_path == cache_root:
-            raise ValueError(
-                f"Path traversal detected in package name: {package_name!r}"
-            )
+            raise ValueError(f"Path traversal detected in package name: {package_name!r}")
         return repo_path
 
     async def _ensure_cache_dir(self) -> None:
@@ -54,7 +50,7 @@ class GitManager:
             if len(entries) <= settings.git_cache_max_entries:
                 return
             entries.sort(key=lambda p: p.stat().st_mtime)
-            to_remove = entries[:len(entries) - settings.git_cache_max_entries]
+            to_remove = entries[: len(entries) - settings.git_cache_max_entries]
             for path in to_remove:
                 shutil.rmtree(path, ignore_errors=True)
 
@@ -90,7 +86,9 @@ class GitManager:
     async def get_logs_between_timestamps(self, repo_path: Path, start: datetime, end: datetime) -> str:
         after = start.strftime("%Y-%m-%d %H:%M:%S")
         before = end.strftime("%Y-%m-%d %H:%M:%S")
-        stdout, _, _ = await self._exec(repo_path, "log", f"--after={after}", f"--before={before}", "--format=%s")
+        stdout, _, _ = await self._exec(
+            repo_path, "log", f"--after={after}", f"--before={before}", "--format=%s"
+        )
         return stdout
 
     @alru_cache(maxsize=256)

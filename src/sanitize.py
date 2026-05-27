@@ -11,6 +11,7 @@ out-of-band characters that could:
 
 Tabs (\\t) and newlines (\\n) are preserved as they are structural.
 """
+
 from __future__ import annotations
 
 import re
@@ -77,7 +78,7 @@ def scrub_external(
     if not text:
         return text
     if text.startswith(_BOM):
-        text = text[len(_BOM):]
+        text = text[len(_BOM) :]
     text = _ANSI_RE.sub("", text)
     text = _CTRL_RE.sub("", text)
     if source is not None or package is not None:

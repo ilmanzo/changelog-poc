@@ -1,4 +1,5 @@
 """Tool modules. Each `*.py` exports `register(mcp)` that binds its tools."""
+
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP

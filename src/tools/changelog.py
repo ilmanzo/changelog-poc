@@ -1,4 +1,5 @@
 """Changelog tools: diff, releases, range, CVE/bug search, semantic + FTS, sync."""
+
 from __future__ import annotations
 
 import asyncio
@@ -118,17 +119,14 @@ async def get_changes_in_range(
         return MSG_UNTIL_UNPARSEABLE.format(until)
     if since_dt >= until_dt:
         return (
-            f"Invalid range: 'since' ({since_dt.isoformat()}) is not before "
-            f"'until' ({until_dt.isoformat()})."
+            f"Invalid range: 'since' ({since_dt.isoformat()}) is not before 'until' ({until_dt.isoformat()})."
         )
     if (msg := await queued_msg_or_none(package, refresh)) is not None:
         return msg
 
     pkg_id = await db.get_package_id(package)
     if pkg_id is None:
-        raise RuntimeError(
-            f"internal: package row missing for {package!r} after readiness probe"
-        )
+        raise RuntimeError(f"internal: package row missing for {package!r} after readiness probe")
     rows = await db.fetch_entries_in_range(pkg_id, since_dt, until_dt)
     entries = _records_to_entries(rows)
     _tlog(entries=len(entries))
@@ -141,9 +139,7 @@ async def get_changes_in_range(
         return header + "\n(no entries in this window)"
     lines = [header]
     for e in entries:
-        lines.append(
-            f"\n--- {_format_date(e.date)} ({e.version}, {e.author}) ---\n{e.content}"
-        )
+        lines.append(f"\n--- {_format_date(e.date)} ({e.version}, {e.author}) ---\n{e.content}")
     return "\n".join(lines)
 
 
@@ -184,10 +180,7 @@ async def list_cves(package: str, since: str | None = None) -> str:
     since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
     if not rows:
         return f"No CVE mentions found in '{package}' changelog{since_tag}."
-    header = (
-        f"CVE entries for {package}{since_tag} -- "
-        f"{len(rows)} matching changelog entries:"
-    )
+    header = f"CVE entries for {package}{since_tag} -- {len(rows)} matching changelog entries:"
     return _format_listing_rows(rows, header, CVE_CONTENT_RE)
 
 
@@ -231,10 +224,7 @@ async def list_bugs(package: str, since: str | None = None) -> str:
     since_tag = f" (since {_format_date(since_dt)})" if since_dt else ""
     if not rows:
         return f"No bug references found in '{package}' changelog{since_tag}."
-    header = (
-        f"Bug references for {package}{since_tag} -- "
-        f"{len(rows)} matching changelog entries:"
-    )
+    header = f"Bug references for {package}{since_tag} -- {len(rows)} matching changelog entries:"
     return _format_listing_rows(rows, header, BSC_CONTENT_RE)
 
 
@@ -250,9 +240,7 @@ async def semantic_search(query: str, limit: int = 5) -> str:
         return "No relevant entries found."
     lines = [f"Semantic search results for: '{query}'"]
     for r in rows:
-        lines.append(
-            f"\n--- {r['package']} ({r['version']}, {_format_date(r['entry_date'])}) ---"
-        )
+        lines.append(f"\n--- {r['package']} ({r['version']}, {_format_date(r['entry_date'])}) ---")
         lines.append(r["content"])
     return "\n".join(lines)
 
@@ -296,9 +284,7 @@ async def compare_versions(package: str, refresh: bool = False) -> str:
         return f"No changelog data for '{package}' in any distro. Try sync_package first."
     lines = [f"Version comparison for {package}:"]
     for r in rows:
-        lines.append(
-            f"  {r['distro']:12s}  {r['version']:30s}  ({_format_date(r['entry_date'])})"
-        )
+        lines.append(f"  {r['distro']:12s}  {r['version']:30s}  ({_format_date(r['entry_date'])})")
     return "\n".join(lines)
 
 
@@ -364,10 +350,7 @@ def _filter_entries_by_version(
         if relevant:
             return relevant, "fuzzy_fallback"
 
-    fallback = [
-        e for e in entries
-        if version_end in str(e.version) or content_matches(e, version_end)
-    ]
+    fallback = [e for e in entries if version_end in str(e.version) or content_matches(e, version_end)]
     return (fallback, "version_string_match" if fallback else "none")
 
 

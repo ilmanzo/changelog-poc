@@ -4,6 +4,7 @@ Centralising them here lets `src/tools/*` import without touching
 ``mcp_server`` (which would create a cycle, since the server itself
 imports the tool modules).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncIterator

@@ -1,4 +1,5 @@
 """Base class for forge release-notes sources (GitHub, GitLab)."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,11 +17,11 @@ class ReleaseProvider:
     """Per-forge configuration shared by all instances of a ReleaseSource."""
 
     name: str
-    auth_header: str | None       # "Authorization" (GH) or "PRIVATE-TOKEN" (GL)
-    auth_format: str              # "Bearer {token}" (GH) or "{token}" (GL)
-    body_field: str               # "body" (GH) / "description" (GL)
-    author_subfield: str          # "login" (GH) / "username" (GL)
-    date_field: str               # "published_at" (GH) / "released_at" (GL)
+    auth_header: str | None  # "Authorization" (GH) or "PRIVATE-TOKEN" (GL)
+    auth_format: str  # "Bearer {token}" (GH) or "{token}" (GL)
+    body_field: str  # "body" (GH) / "description" (GL)
+    author_subfield: str  # "login" (GH) / "username" (GL)
+    date_field: str  # "published_at" (GH) / "released_at" (GL)
     date_fallback: str = "created_at"
 
 
@@ -37,14 +38,10 @@ class ReleaseSource(HttpSource):
     def __init__(self, upstream_url: str, token: str | None = None) -> None:
         parts = self.parse_url(upstream_url)
         if parts is None:
-            raise ValueError(
-                f"not a {self.provider.name} repo URL: {upstream_url}"
-            )
+            raise ValueError(f"not a {self.provider.name} repo URL: {upstream_url}")
         headers: dict[str, str] = {}
         if token and self.provider.auth_header:
-            headers[self.provider.auth_header] = self.provider.auth_format.format(
-                token=token
-            )
+            headers[self.provider.auth_header] = self.provider.auth_format.format(token=token)
         super().__init__(extra_headers=headers or None)
         self._upstream_url = upstream_url
         self._url_parts = parts
@@ -82,17 +79,12 @@ class ReleaseSource(HttpSource):
             entries.append(self._build_entry(rel, package))
         return FetchResult(entries=entries, source_name=self.name)
 
-    def _build_entry(
-        self, rel: dict[str, Any], package: str
-    ) -> ChangelogEntry:
+    def _build_entry(self, rel: dict[str, Any], package: str) -> ChangelogEntry:
         tag = rel.get("tag_name", "unknown")
         body = rel.get(self.provider.body_field) or ""
         body = scrub_external(body, package=package, source=self.name)
 
-        raw_date = (
-            rel.get(self.provider.date_field)
-            or rel.get(self.provider.date_fallback, "")
-        )
+        raw_date = rel.get(self.provider.date_field) or rel.get(self.provider.date_fallback, "")
         try:
             dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
         except (ValueError, AttributeError):
@@ -104,6 +96,4 @@ class ReleaseSource(HttpSource):
             author = author_obj.get(self.provider.author_subfield) or "unknown"
 
         version = tag.removeprefix("v").removeprefix("V")
-        return ChangelogEntry(
-            version=version, author=author, date=dt, content=body
-        )
+        return ChangelogEntry(version=version, author=author, date=dt, content=body)

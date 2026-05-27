@@ -1,4 +1,5 @@
 """SourceRegistry: orchestrates fetching across multiple ChangelogSources."""
+
 from __future__ import annotations
 
 import asyncio
@@ -54,30 +55,36 @@ class SourceRegistry:
             await source.close()
 
     async def _fetch_waterfall(
-        self, package: str, sources: list[ChangelogSource],
+        self,
+        package: str,
+        sources: list[ChangelogSource],
     ) -> FetchResult:
         any_error = False
         for source in sources:
             try:
                 result = await source.fetch(package)
                 if not result.is_empty:
-                    logger.info("source_hit",
-                                package=package, source=source.name,
-                                entries=len(result.entries), strategy="waterfall")
+                    logger.info(
+                        "source_hit",
+                        package=package,
+                        source=source.name,
+                        entries=len(result.entries),
+                        strategy="waterfall",
+                    )
                     return result
                 logger.info("source_empty", package=package, source=source.name)
             except SourceNotFound:
-                logger.info("source_miss",
-                            package=package, source=source.name, reason="not_found")
+                logger.info("source_miss", package=package, source=source.name, reason="not_found")
             except SourceError as exc:
                 any_error = True
-                logger.warning("source_error",
-                               package=package, source=source.name, error=str(exc))
+                logger.warning("source_error", package=package, source=source.name, error=str(exc))
 
         return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
     async def _fetch_parallel(
-        self, package: str, sources: list[ChangelogSource],
+        self,
+        package: str,
+        sources: list[ChangelogSource],
     ) -> FetchResult:
         local = [s for s in sources if s.is_local]
         network = [s for s in sources if not s.is_local]
@@ -86,17 +93,19 @@ class SourceRegistry:
             try:
                 result = await source.fetch(package)
                 if not result.is_empty:
-                    logger.info("source_hit",
-                                package=package, source=source.name,
-                                entries=len(result.entries), strategy="parallel_local")
+                    logger.info(
+                        "source_hit",
+                        package=package,
+                        source=source.name,
+                        entries=len(result.entries),
+                        strategy="parallel_local",
+                    )
                     return result
             except SourceNotFound:
-                logger.info("source_miss",
-                            package=package, source=source.name, reason="not_found")
+                logger.info("source_miss", package=package, source=source.name, reason="not_found")
             except SourceError as exc:
                 any_error = True
-                logger.warning("source_error",
-                               package=package, source=source.name, error=str(exc))
+                logger.warning("source_error", package=package, source=source.name, error=str(exc))
 
         if not network:
             return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
@@ -109,12 +118,10 @@ class SourceRegistry:
         valid: list[FetchResult] = []
         for source, outcome in zip(network, raw, strict=True):
             if isinstance(outcome, SourceNotFound):
-                logger.info("source_miss",
-                            package=package, source=source.name, reason="not_found")
+                logger.info("source_miss", package=package, source=source.name, reason="not_found")
             elif isinstance(outcome, Exception):
                 any_error = True
-                logger.warning("source_error",
-                               package=package, source=source.name, error=str(outcome))
+                logger.warning("source_error", package=package, source=source.name, error=str(outcome))
             elif isinstance(outcome, FetchResult) and not outcome.is_empty:
                 valid.append(outcome)
 
@@ -126,7 +133,11 @@ class SourceRegistry:
         # "freshest". Content-addressed UUIDs make later merging idempotent if
         # we ever want to union instead.
         best = max(valid, key=lambda r: len(r.entries))
-        logger.info("source_hit",
-                    package=package, source=best.source_name,
-                    entries=len(best.entries), strategy="parallel_network")
+        logger.info(
+            "source_hit",
+            package=package,
+            source=best.source_name,
+            entries=len(best.entries),
+            strategy="parallel_network",
+        )
         return best

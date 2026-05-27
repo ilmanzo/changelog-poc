@@ -1,4 +1,5 @@
 """Tool wrapper: timing + structured logging + exception → user-facing string."""
+
 from __future__ import annotations
 
 import contextvars
@@ -19,15 +20,11 @@ _logger = structlog.get_logger("rpm-mcp.server")
 _log_extras: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "_log_extras", default=None
 )
-_stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar(
-    "_stale_state", default=None
-)
+_stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar("_stale_state", default=None)
 # When True, the wrapper suppresses the <rpm-mcp:untrusted-data> envelope.
 # Set by run_cli before invoking a tool one-shot from the shell, so humans
 # reading raw CLI output don't see XML tags wrapping the body.
-_suppress_envelope: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "_suppress_envelope", default=False
-)
+_suppress_envelope: contextvars.ContextVar[bool] = contextvars.ContextVar("_suppress_envelope", default=False)
 
 
 def suppress_untrusted_envelope() -> None:
@@ -57,11 +54,7 @@ def _wrap_untrusted(body: str, sources: tuple[str, ...]) -> str:
     if not sources or _suppress_envelope.get():
         return body
     src = ",".join(sources)
-    return (
-        f"<rpm-mcp:untrusted-data sources=\"{src}\">\n"
-        f"{body}\n"
-        f"</rpm-mcp:untrusted-data>"
-    )
+    return f'<rpm-mcp:untrusted-data sources="{src}">\n{body}\n</rpm-mcp:untrusted-data>'
 
 
 def _tool_wrapper(

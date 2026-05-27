@@ -1,4 +1,5 @@
 """Changelog source: OBS Factory API (api.opensuse.org)."""
+
 from __future__ import annotations
 
 from async_lru import alru_cache

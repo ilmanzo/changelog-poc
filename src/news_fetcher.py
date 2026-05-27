@@ -4,6 +4,7 @@ Returns NewsItem records suitable for ``Database.upsert_news``. No LLM call
 inside the fetcher — classification is heuristic; LLM summarisation lives in
 its own tool layer if/when needed.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -49,18 +50,18 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
                 title = scrub_external(raw_title, source="bodhi", package=pkg)
                 if not title:
                     continue
-                items.append(NewsItem(
-                    title=title,
-                    source="bodhi",
-                    item_type=u.get("type"),
-                    importance=_classify_bodhi(u),
-                    content=scrub_external(
-                        u.get("notes") or "", source="bodhi", package=pkg
-                    ) or None,
-                    url=u.get("url"),
-                    date=datetime.now(UTC),
-                    package_name=pkg,
-                ))
+                items.append(
+                    NewsItem(
+                        title=title,
+                        source="bodhi",
+                        item_type=u.get("type"),
+                        importance=_classify_bodhi(u),
+                        content=scrub_external(u.get("notes") or "", source="bodhi", package=pkg) or None,
+                        url=u.get("url"),
+                        date=datetime.now(UTC),
+                        package_name=pkg,
+                    )
+                )
     except Exception as e:
         _logger.warning("bodhi_error", error=str(e))
     return items
@@ -94,25 +95,25 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
                 title_raw = _child_text(entry, "title")
                 if not title_raw:
                     continue
-                pkg = "Tumbleweed" if (
-                    "Tumbleweed" in title_raw or "Snapshot" in title_raw
-                ) else None
+                pkg = "Tumbleweed" if ("Tumbleweed" in title_raw or "Snapshot" in title_raw) else None
                 title = scrub_external(title_raw, source="opensuse-rss", package=pkg)
                 desc_raw = _child_text(entry, "description")
                 link_raw = _child_text(entry, "link")
                 importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
-                items.append(NewsItem(
-                    title=title,
-                    source="opensuse-rss",
-                    item_type="snapshot" if pkg else "news",
-                    importance=importance,
-                    content=scrub_external(
-                        desc_raw, source="opensuse-rss", package=pkg
-                    ) if desc_raw else None,
-                    url=link_raw,
-                    date=datetime.now(UTC),
-                    package_name=pkg,
-                ))
+                items.append(
+                    NewsItem(
+                        title=title,
+                        source="opensuse-rss",
+                        item_type="snapshot" if pkg else "news",
+                        importance=importance,
+                        content=scrub_external(desc_raw, source="opensuse-rss", package=pkg)
+                        if desc_raw
+                        else None,
+                        url=link_raw,
+                        date=datetime.now(UTC),
+                        package_name=pkg,
+                    )
+                )
     except Exception as e:
         _logger.warning("opensuse_news_error", error=str(e))
     return items

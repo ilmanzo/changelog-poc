@@ -4,6 +4,7 @@ Mirrors the `ChangelogSource` ABC pattern but for raw `.spec` text. Sources
 return ``(text, source_url)`` on success and ``(None, None)`` when the
 package is unavailable on that origin.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -27,8 +28,7 @@ class SpecSource(ABC):
     name: str = ""
 
     @abstractmethod
-    async def fetch_spec(self, package: str) -> tuple[str | None, str | None]:
-        ...
+    async def fetch_spec(self, package: str) -> tuple[str | None, str | None]: ...
 
 
 class ObsSpecSource(SpecSource):

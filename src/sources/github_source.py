@@ -1,4 +1,5 @@
 """Changelog source: GitHub release notes via the REST API."""
+
 from __future__ import annotations
 
 import re
@@ -7,9 +8,7 @@ from typing import ClassVar
 from ..config import settings
 from .release_source import ReleaseProvider, ReleaseSource
 
-_GITHUB_REPO_RE = re.compile(
-    r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$"
-)
+_GITHUB_REPO_RE = re.compile(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$")
 
 
 def parse_github_repo(url: str) -> tuple[str, str] | None:
@@ -49,7 +48,4 @@ class GitHubSource(ReleaseSource):
 
     def _api_url(self) -> str:
         owner, repo = self._url_parts
-        return (
-            f"https://api.github.com/repos/{owner}/{repo}"
-            f"/releases?per_page=100"
-        )
+        return f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=100"

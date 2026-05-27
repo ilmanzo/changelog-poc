@@ -7,6 +7,7 @@ Single backing store for changelog_entries, specs, spec_sections, news,
 openqa_tests, deps, manifest. Replaces both the Qdrant layer of changelog-poc
 and the SQLite layer of rpm-spec-assistant.
 """
+
 from __future__ import annotations
 
 import re
@@ -96,6 +97,7 @@ class Database:
     def _scrubbed_dsn(self) -> str:
         # Hide password in logs.
         from urllib.parse import urlparse, urlunparse
+
         try:
             p = urlparse(self._dsn)
             if p.password:
@@ -136,7 +138,10 @@ class Database:
                     upstream_url   = COALESCE(EXCLUDED.upstream_url, packages.upstream_url)
                 RETURNING id
                 """,
-                name, distro, latest_version, upstream_url,
+                name,
+                distro,
+                latest_version,
+                upstream_url,
             )
             return int(row["id"])
 
@@ -144,7 +149,8 @@ class Database:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT id FROM packages WHERE name = $1 AND distro = $2",
-                name, distro,
+                name,
+                distro,
             )
             return int(row["id"]) if row else None
 
@@ -152,7 +158,8 @@ class Database:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT upstream_url FROM packages WHERE name = $1 AND distro = $2",
-                name, distro,
+                name,
+                distro,
             )
             url = row.get("upstream_url") if row else None
             return str(url) if url else None
@@ -171,16 +178,18 @@ class Database:
         """Bulk upsert. Returns inserted count (conflicts skipped)."""
         rows: list[tuple[Any, ...]] = []
         for e, emb in zip(entries, embeddings, strict=True):
-            rows.append((
-                content_uuid(package_name, e.content),
-                package_id,
-                e.version,
-                e.author,
-                e.date,
-                e.content,
-                source_name,
-                emb or None,
-            ))
+            rows.append(
+                (
+                    content_uuid(package_name, e.content),
+                    package_id,
+                    e.version,
+                    e.author,
+                    e.date,
+                    e.content,
+                    source_name,
+                    emb or None,
+                )
+            )
         if not rows:
             return 0
         async with self.pool.acquire() as conn:
@@ -195,9 +204,7 @@ class Database:
             )
         return len(rows)
 
-    async def fetch_entries(
-        self, package_id: int, limit: int | None = None
-    ) -> list[asyncpg.Record]:
+    async def fetch_entries(self, package_id: int, limit: int | None = None) -> list[asyncpg.Record]:
         q = """
             SELECT version, author, entry_date, content
             FROM changelog_entries
@@ -221,15 +228,15 @@ class Database:
                   AND entry_date BETWEEN $2 AND $3
                 ORDER BY entry_date DESC
                 """,
-                package_id, since, until,
+                package_id,
+                since,
+                until,
             )
 
     # ------------------------------------------------------------------
     # semantic + FTS search
     # ------------------------------------------------------------------
-    async def semantic_search(
-        self, embedding: list[float], limit: int = 10
-    ) -> list[asyncpg.Record]:
+    async def semantic_search(self, embedding: list[float], limit: int = 10) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch(
                 """
@@ -241,7 +248,8 @@ class Database:
                 ORDER BY ce.embedding <=> $1::vector
                 LIMIT $2
                 """,
-                embedding, limit,
+                embedding,
+                limit,
             )
 
     async def fts_search(
@@ -259,7 +267,9 @@ class Database:
                 ORDER BY rank DESC
                 LIMIT $2
                 """,
-                query, limit, since,
+                query,
+                limit,
+                since,
             )
 
     async def _fetch_text_search(
@@ -324,9 +334,7 @@ class Database:
             limit=limit,
         )
 
-    async def find_bug(
-        self, bug_ref: str, package_name: str | None = None
-    ) -> list[asyncpg.Record]:
+    async def find_bug(self, bug_ref: str, package_name: str | None = None) -> list[asyncpg.Record]:
         """Case-insensitive substring search for a specific bug ID (e.g. bsc#1234567)."""
         return await self._substring_search(bug_ref, package_name)
 
@@ -341,18 +349,14 @@ class Database:
             params.append(since)
         return await self._fetch_text_search(where_clauses=where, params=params)
 
-    async def find_cve(
-        self, cve_id: str, package_name: str | None = None
-    ) -> list[asyncpg.Record]:
+    async def find_cve(self, cve_id: str, package_name: str | None = None) -> list[asyncpg.Record]:
         """Case-insensitive substring search for a specific CVE ID."""
         return await self._substring_search(cve_id, package_name)
 
     # ------------------------------------------------------------------
     # specs + spec_sections
     # ------------------------------------------------------------------
-    async def upsert_spec(
-        self, package_id: int, source: str, version: str | None, content: str
-    ) -> int:
+    async def upsert_spec(self, package_id: int, source: str, version: str | None, content: str) -> int:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -364,7 +368,10 @@ class Database:
                     last_updated = now()
                 RETURNING id
                 """,
-                package_id, source, version, content,
+                package_id,
+                source,
+                version,
+                content,
             )
             return int(row["id"])
 
@@ -394,7 +401,8 @@ class Database:
         async with self.pool.acquire() as conn:
             return await conn.fetchrow(
                 "SELECT id, content, version FROM specs WHERE package_id = $1 AND source = $2",
-                package_id, source,
+                package_id,
+                source,
             )
 
     # ------------------------------------------------------------------
@@ -427,8 +435,13 @@ class Database:
             rows = [
                 (
                     id_by_name.get(n.package_name) if n.package_name else None,
-                    n.title, n.source, n.item_type, n.importance,
-                    n.content, n.url, n.date,
+                    n.title,
+                    n.source,
+                    n.item_type,
+                    n.importance,
+                    n.content,
+                    n.url,
+                    n.date,
                 )
                 for n in items_list
             ]
@@ -443,9 +456,7 @@ class Database:
             )
         return len(rows)
 
-    async def get_news(
-        self, package_name: str | None = None, limit: int = 10
-    ) -> list[asyncpg.Record]:
+    async def get_news(self, package_name: str | None = None, limit: int = 10) -> list[asyncpg.Record]:
         async with self.pool.acquire() as conn:
             return await conn.fetch(
                 """
@@ -455,7 +466,8 @@ class Database:
                 WHERE ($1::text IS NULL OR p.name = $1)
                 ORDER BY n.item_date DESC LIMIT $2
                 """,
-                package_name, limit,
+                package_name,
+                limit,
             )
 
     async def upsert_openqa(self, tests: Iterable[OpenQATest]) -> int:
@@ -494,7 +506,9 @@ class Database:
             )
 
     async def find_untested_packages(
-        self, days: int = 90, limit: int = 5,
+        self,
+        days: int = 90,
+        limit: int = 5,
     ) -> list[asyncpg.Record]:
         """Packages with recent changelog entries but no openqa_tests rows."""
         async with self.pool.acquire() as conn:
@@ -512,7 +526,8 @@ class Database:
                 ORDER BY latest_change DESC
                 LIMIT $2
                 """,
-                days, limit,
+                days,
+                limit,
             )
 
     async def compare_versions(self, package: str) -> list[asyncpg.Record]:
@@ -539,13 +554,12 @@ class Database:
     # ------------------------------------------------------------------
     # deps
     # ------------------------------------------------------------------
-    async def replace_deps(
-        self, package_id: int, dep_names: Iterable[str], kind: str
-    ) -> None:
+    async def replace_deps(self, package_id: int, dep_names: Iterable[str], kind: str) -> None:
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "DELETE FROM deps WHERE package_id = $1 AND kind = $2",
-                package_id, kind,
+                package_id,
+                kind,
             )
             rows = [(package_id, d, kind) for d in dep_names]
             if rows:
@@ -564,7 +578,8 @@ class Database:
                 WHERE p.name = $1 AND d.kind = $2
                 ORDER BY d.dep_name
                 """,
-                package_name, kind,
+                package_name,
+                kind,
             )
         return [r["dep_name"] for r in rows]
 
@@ -586,9 +601,7 @@ class Database:
     # ------------------------------------------------------------------
     # manifest / eviction
     # ------------------------------------------------------------------
-    async def touch_manifest(
-        self, package_id: int, kind: str = "changelog"
-    ) -> None:
+    async def touch_manifest(self, package_id: int, kind: str = "changelog") -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -600,9 +613,7 @@ class Database:
                 kind,
             )
 
-    async def is_fresh(
-        self, package_id: int, ttl_seconds: int, kind: str = "changelog"
-    ) -> bool:
+    async def is_fresh(self, package_id: int, ttl_seconds: int, kind: str = "changelog") -> bool:
         """True if the manifest row exists and is younger than *ttl_seconds*.
 
         Returns False both when the entry is stale and when no manifest row
@@ -620,9 +631,7 @@ class Database:
         age = (datetime.now(UTC) - row["synced_at"]).total_seconds()
         return age < ttl_seconds
 
-    async def get_synced_at(
-        self, package_id: int, kind: str = "changelog"
-    ) -> datetime | None:
+    async def get_synced_at(self, package_id: int, kind: str = "changelog") -> datetime | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT synced_at FROM manifest WHERE package_id = $1 AND kind = $2",
@@ -631,9 +640,7 @@ class Database:
             )
         return row["synced_at"] if row else None
 
-    async def evict_stale(
-        self, ttl_seconds: int, kind: str = "changelog"
-    ) -> list[str]:
+    async def evict_stale(self, ttl_seconds: int, kind: str = "changelog") -> list[str]:
         """Delete cached rows for packages whose manifest *kind* is older than
         TTL. Only ``kind='changelog'`` deletes from ``changelog_entries``; other
         kinds only purge their manifest entry (specs evict via the worker's

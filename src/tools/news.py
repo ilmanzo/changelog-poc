@@ -1,4 +1,5 @@
 """News / openQA / sync-status tools."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -120,9 +121,7 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
             f"All packages with changelog entries in the last {days} days "
             "have at least one recorded openQA test."
         )
-    lines = [
-        f"Packages with changes in the last {days}d but no openQA test coverage ({len(rows)}):"
-    ]
+    lines = [f"Packages with changes in the last {days}d but no openQA test coverage ({len(rows)}):"]
     for r in rows:
         lines.append(
             f"\n  {r['name']}"

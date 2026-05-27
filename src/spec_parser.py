@@ -3,6 +3,7 @@
 Produces SpecSection chunks ready for embedding. Falls back to manual `%`-based
 splitting if the AST parser rejects the input (common with malformed specs).
 """
+
 from __future__ import annotations
 
 import tempfile
@@ -17,8 +18,14 @@ from .sanitize import scrub_external
 _logger = structlog.get_logger("rpm-mcp.spec_parser")
 
 _SECTION_TAGS = (
-    "%prep", "%build", "%install", "%check", "%files",
-    "%changelog", "%package", "%description",
+    "%prep",
+    "%build",
+    "%install",
+    "%check",
+    "%files",
+    "%changelog",
+    "%package",
+    "%description",
 )
 
 
@@ -74,9 +81,11 @@ def chunk_sections(sections: dict[str, str]) -> list[SpecSection]:
         if not content:
             continue
         for idx, chunk in enumerate(chunk_text(content)):
-            out.append(SpecSection(
-                section_name=name,
-                chunk_index=idx,
-                content=chunk,
-            ))
+            out.append(
+                SpecSection(
+                    section_name=name,
+                    chunk_index=idx,
+                    content=chunk,
+                )
+            )
     return out

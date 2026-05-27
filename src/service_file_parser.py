@@ -4,16 +4,19 @@ OBS service files define how source archives are fetched. The ``obs_scm``
 and ``tar_scm`` services carry a ``<param name="url">`` element pointing
 at the upstream VCS repository.
 """
+
 from __future__ import annotations
 
 import defusedxml.ElementTree as ET
 
-_SCM_SERVICE_NAMES = frozenset({
-    "obs_scm",
-    "tar_scm",
-    "obs_scm_bridge",
-    "download_url",
-})
+_SCM_SERVICE_NAMES = frozenset(
+    {
+        "obs_scm",
+        "tar_scm",
+        "obs_scm_bridge",
+        "download_url",
+    }
+)
 
 
 def extract_urls_from_service(xml_text: str) -> list[str]:

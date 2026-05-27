@@ -1,4 +1,5 @@
 """Dependency tools: forward/reverse deps, transitive dep changes, core packages."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,9 +43,7 @@ async def get_reverse_dependencies(package: str) -> str:
 
 
 @_tool_wrapper("get_dependency_changes")
-async def get_dependency_changes(
-    package: str, n: int = 3, depth: int = 1, refresh: bool = False
-) -> str:
+async def get_dependency_changes(package: str, n: int = 3, depth: int = 1, refresh: bool = False) -> str:
     """For each (transitive) dependency of *package*, return its last *n* releases."""
     validate_package_name(package)
     depth = max(1, min(depth, 2))
@@ -60,8 +59,7 @@ async def get_dependency_changes(
     )
 
     lines = [
-        f"Dependencies of {package} "
-        f"(depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
+        f"Dependencies of {package} (depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
     ]
     ok = err = missing = queued = 0
     for dep, res in zip(deps_list, results, strict=True):

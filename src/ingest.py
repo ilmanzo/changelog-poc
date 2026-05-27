@@ -4,6 +4,7 @@ Pure application logic; no MCP or CLI concerns. Both the ``sync_package`` MCP
 tool and ``scripts/ingest.py`` delegate here so the same code path is exercised
 by on-demand and offline batch ingestion.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,8 +34,8 @@ class IngestStatus(StrEnum):
     INDEXED = "indexed"
     EMPTY = "empty"
     INVALID = "invalid"
-    STALE = "stale"   # fetch failed, serving previously-cached rows
-    ERROR = "error"   # unexpected exception during a background ingest
+    STALE = "stale"  # fetch failed, serving previously-cached rows
+    ERROR = "error"  # unexpected exception during a background ingest
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,7 @@ class IngestResult:
     source: str = ""
     elapsed_s: float = 0.0
     error: str = ""
-    synced_at: datetime | None = None   # populated when status is STALE
+    synced_at: datetime | None = None  # populated when status is STALE
 
 
 class IngestService:
@@ -74,9 +75,7 @@ class IngestService:
         """Coalesced sync-style ingest — awaits the result."""
         return await self._get_or_start(package, distro)
 
-    def schedule(
-        self, package: str, distro: str = "opensuse"
-    ) -> asyncio.Task[IngestResult]:
+    def schedule(self, package: str, distro: str = "opensuse") -> asyncio.Task[IngestResult]:
         """Fire-and-forget. Returns the in-flight task (for tests/diagnostics).
 
         Production callers ignore the return value. Exceptions raised inside
@@ -88,16 +87,12 @@ class IngestService:
     async def ingest_all_distros(self, package: str) -> list[IngestResult]:
         """Ingest *package* from every registered distro in parallel."""
         distros = self._sources.known_distros
-        return list(
-            await asyncio.gather(*(self.ingest(package, d) for d in distros))
-        )
+        return list(await asyncio.gather(*(self.ingest(package, d) for d in distros)))
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-    def _get_or_start(
-        self, package: str, distro: str
-    ) -> asyncio.Task[IngestResult]:
+    def _get_or_start(self, package: str, distro: str) -> asyncio.Task[IngestResult]:
         key = (package, distro)
         task = self._pending.get(key)
         if task is not None and not task.done():
@@ -185,7 +180,10 @@ class IngestService:
         await self._db.touch_manifest(package_id, kind="changelog")
 
         upstream_extra = await self._enrich_upstream(
-            package, package_id, result.upstream_url, log,
+            package,
+            package_id,
+            result.upstream_url,
+            log,
         )
         total = inserted + upstream_extra
 
@@ -218,7 +216,8 @@ class IngestService:
             url = await self._resolve_upstream_url(package)
             if url:
                 await self._db.upsert_package(
-                    name=package, upstream_url=url,
+                    name=package,
+                    upstream_url=url,
                 )
         if not url:
             return 0
@@ -291,9 +290,7 @@ class IngestService:
 
         return None
 
-    async def _stale_fallback(
-        self, package: str
-    ) -> tuple[int, datetime | None] | None:
+    async def _stale_fallback(self, package: str) -> tuple[int, datetime | None] | None:
         """If we have cached rows for *package*, return (count, synced_at).
 
         Returns ``None`` when no cache exists (caller should report EMPTY).

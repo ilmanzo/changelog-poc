@@ -1,4 +1,5 @@
 """Changelog source: src.opensuse.org (Gitea)."""
+
 from __future__ import annotations
 
 from async_lru import alru_cache

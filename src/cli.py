@@ -1,4 +1,5 @@
 """Argparse-based CLI: invoke any tool directly from the shell."""
+
 from __future__ import annotations
 
 import argparse

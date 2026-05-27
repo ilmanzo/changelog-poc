@@ -3,6 +3,7 @@
 Set ``LOG_FORMAT=json`` for newline-delimited JSON (production / log aggregators).
 Default is human-readable coloured output for local development.
 """
+
 from __future__ import annotations
 
 import logging

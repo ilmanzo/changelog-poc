@@ -3,6 +3,7 @@
 Clones on first use, pulls on refresh. Scanning test files for
 package references is delegated to ``test_coverage_parser``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,11 @@ class TestRepoManager:
         if (self.local_path / ".git").is_dir():
             _logger.info("test_repo_pull", path=str(self.local_path))
             proc = await asyncio.create_subprocess_exec(
-                "git", "-C", str(self.local_path), "pull", "--ff-only",
+                "git",
+                "-C",
+                str(self.local_path),
+                "pull",
+                "--ff-only",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -44,15 +49,17 @@ class TestRepoManager:
             dest = str(self.local_path)
             _logger.info("test_repo_clone", url=self.repo_url, path=dest)
             proc = await asyncio.create_subprocess_exec(
-                "git", "clone", "--depth=1", self.repo_url, dest,
+                "git",
+                "clone",
+                "--depth=1",
+                self.repo_url,
+                dest,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                raise RuntimeError(
-                    f"git clone failed: {stderr.decode()}"
-                )
+                raise RuntimeError(f"git clone failed: {stderr.decode()}")
 
     def scan(self) -> dict[str, set[str]]:
         """Scan .pm files for package references. Sync call (CPU-bound, fast)."""

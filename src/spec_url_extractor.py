@@ -4,6 +4,7 @@ Looks for forge URLs (GitHub, GitLab, Codeberg, etc.) in the ``URL:``
 and ``Source0:``/``Source:`` header fields. Returns a de-duped, ordered
 list of candidate URLs.
 """
+
 from __future__ import annotations
 
 import re
@@ -11,21 +12,24 @@ from urllib.parse import urlparse
 
 _URL_TAG_RE = re.compile(r"^URL:\s+(\S+)", re.MULTILINE | re.IGNORECASE)
 _SOURCE_TAG_RE = re.compile(
-    r"^Source0?:\s+(\S+)", re.MULTILINE | re.IGNORECASE,
+    r"^Source0?:\s+(\S+)",
+    re.MULTILINE | re.IGNORECASE,
 )
 
-_FORGE_HOSTS = frozenset({
-    "github.com",
-    "gitlab.com",
-    "codeberg.org",
-    "gitlab.gnome.org",
-    "gitlab.freedesktop.org",
-    "gitlab.xfce.org",
-    "invent.kde.org",
-    "git.savannah.gnu.org",
-    "gitea.com",
-    "sr.ht",
-})
+_FORGE_HOSTS = frozenset(
+    {
+        "github.com",
+        "gitlab.com",
+        "codeberg.org",
+        "gitlab.gnome.org",
+        "gitlab.freedesktop.org",
+        "gitlab.xfce.org",
+        "invent.kde.org",
+        "git.savannah.gnu.org",
+        "gitea.com",
+        "sr.ht",
+    }
+)
 
 
 def _is_forge_url(url: str) -> bool:

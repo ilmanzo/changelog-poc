@@ -1,4 +1,5 @@
 """Local RPM database access — query metadata + parse changelogs."""
+
 from __future__ import annotations
 
 import re
@@ -113,9 +114,7 @@ class RPMManager:
             if tok:
                 capabilities.add(tok.split()[0])
 
-        out, _, _ = await self._exec(
-            "-q", "--whatrequires", "--qf", "%{NAME}\n", "--", *capabilities
-        )
+        out, _, _ = await self._exec("-q", "--whatrequires", "--qf", "%{NAME}\n", "--", *capabilities)
         rdeps: set[str] = set()
         for line in out.splitlines():
             name = line.strip()
@@ -131,9 +130,7 @@ class RPMManager:
     )
 
     @staticmethod
-    def parse_changelog(
-        raw_text: str, *, package: str | None = None
-    ) -> list[ChangelogEntry]:
+    def parse_changelog(raw_text: str, *, package: str | None = None) -> list[ChangelogEntry]:
         """Parse RPM ``--changelog`` output into ChangelogEntry list."""
         raw_text = scrub_external(raw_text, package=package, source="rpm")
         entries = RPMManager._parse_header_blocks(raw_text)
@@ -188,9 +185,7 @@ class RPMManager:
                 )
 
     @staticmethod
-    def _create_entry(
-        header: tuple[str, str, str], content: list[str]
-    ) -> ChangelogEntry:
+    def _create_entry(header: tuple[str, str, str], content: list[str]) -> ChangelogEntry:
         date_str, author, version = header
         try:
             dt = datetime.strptime(date_str, "%a %b %d %Y")

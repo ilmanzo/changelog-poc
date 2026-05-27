@@ -3,6 +3,7 @@
 One module-level singleton avoids reloading the ONNX model per call. Used by
 both the ingest path (batched) and the query path (single-string).
 """
+
 from __future__ import annotations
 
 import asyncio

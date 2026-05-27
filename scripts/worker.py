@@ -11,6 +11,7 @@ End users run only the per-user MCP server; this script handles bulk refresh.
 
 Exits 0 unless an unrecoverable error occurs (e.g. DB unreachable).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,9 +45,7 @@ async def _load_packages(args: argparse.Namespace) -> list[str]:
     return sorted({line.strip() for line in stdout.splitlines() if line.strip()})
 
 
-async def _ingest_batch(
-    service: IngestService, packages: list[str], concurrency: int
-) -> list[IngestResult]:
+async def _ingest_batch(service: IngestService, packages: list[str], concurrency: int) -> list[IngestResult]:
     sem = asyncio.Semaphore(concurrency)
 
     async def _one(pkg: str) -> IngestResult:
@@ -67,8 +66,7 @@ async def _run(args: argparse.Namespace) -> int:
         if args.news or args.all:
             age = await db.news_age_seconds()
             if not args.force and age is not None and age < settings.cache_ttl_news_s:
-                log.info("news_skipped_fresh", age_s=age,
-                         ttl_s=settings.cache_ttl_news_s)
+                log.info("news_skipped_fresh", age_s=age, ttl_s=settings.cache_ttl_news_s)
             else:
                 items = await fetch_all_news(limit=50)
                 inserted = await db.upsert_news(items)
@@ -104,20 +102,28 @@ async def _run(args: argparse.Namespace) -> int:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--file", "-f", type=Path,
-                   help="Allow-list of packages to ingest (one per line, # comments OK)")
+    p.add_argument(
+        "--file", "-f", type=Path, help="Allow-list of packages to ingest (one per line, # comments OK)"
+    )
     p.add_argument("--concurrency", "-c", type=int, default=settings.worker_concurrency)
     p.add_argument("--news", action="store_true", help="Refresh news feeds")
-    p.add_argument("--openqa", type=Path,
-                   help="Path to a checked-out os-autoinst-distri-opensuse repo to scan")
-    p.add_argument("--test-repo", action="store_true",
-                   help="Clone/pull os-autoinst test repo and ingest package-test mappings")
-    p.add_argument("--sweep", action="store_true",
-                   help="Evict per-kind manifest rows older than their CACHE_TTL_*_S")
-    p.add_argument("--all", action="store_true",
-                   help="Run sweep + news + ingest (uses --file if given, else rpm -qa)")
-    p.add_argument("--force", action="store_true",
-                   help="Ignore the news TTL guard and refresh feeds unconditionally")
+    p.add_argument(
+        "--openqa", type=Path, help="Path to a checked-out os-autoinst-distri-opensuse repo to scan"
+    )
+    p.add_argument(
+        "--test-repo",
+        action="store_true",
+        help="Clone/pull os-autoinst test repo and ingest package-test mappings",
+    )
+    p.add_argument(
+        "--sweep", action="store_true", help="Evict per-kind manifest rows older than their CACHE_TTL_*_S"
+    )
+    p.add_argument(
+        "--all", action="store_true", help="Run sweep + news + ingest (uses --file if given, else rpm -qa)"
+    )
+    p.add_argument(
+        "--force", action="store_true", help="Ignore the news TTL guard and refresh feeds unconditionally"
+    )
     p.add_argument("--debug", action="store_true")
     args = p.parse_args()
     args.packages_path_provided = bool(args.file)

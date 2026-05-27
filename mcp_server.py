@@ -4,6 +4,7 @@ Tool bodies live in ``src/tools/*``; each module exports ``register(mcp)``.
 Singletons (DB, source registry, ingest service) live in ``src/runtime``.
 This file wires them together.
 """
+
 from __future__ import annotations
 
 import logging

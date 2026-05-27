@@ -3,6 +3,7 @@
 Keeps IngestService decoupled from individual release providers: adding a
 new forge means registering it here, not editing ingest.py.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

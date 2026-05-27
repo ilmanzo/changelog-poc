@@ -3,6 +3,7 @@
 Extracts package names from zypper_install / ensure_installed /
 install_package calls and from test module path heuristics.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,10 +14,27 @@ _INSTALL_CALL_RE = re.compile(
     re.MULTILINE,
 )
 
-_ZYPPER_SUBCMDS = frozenset({
-    "install", "in", "remove", "rm", "update", "up", "patch", "search",
-    "se", "info", "if", "repos", "lr", "addrepo", "ar", "refresh", "ref",
-})
+_ZYPPER_SUBCMDS = frozenset(
+    {
+        "install",
+        "in",
+        "remove",
+        "rm",
+        "update",
+        "up",
+        "patch",
+        "search",
+        "se",
+        "info",
+        "if",
+        "repos",
+        "lr",
+        "addrepo",
+        "ar",
+        "refresh",
+        "ref",
+    }
+)
 
 _PACKAGE_HEADER_RE = re.compile(
     r"""^\s*#\s*Package:\s*(.+)$""",
@@ -48,7 +66,7 @@ def extract_package_from_path(test_path: str) -> str | None:
     stem = Path(test_path).stem
     for prefix in ("install_", "update_", "test_", "verify_"):
         if stem.startswith(prefix):
-            return stem[len(prefix):]
+            return stem[len(prefix) :]
     return None
 
 

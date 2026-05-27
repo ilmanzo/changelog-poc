@@ -4,6 +4,7 @@ Tries the standalone ``changelog`` file first (rpmautospec), then falls
 back to extracting ``%changelog`` from the spec file. Both use RPM
 changelog format (``* Day Mon DD YYYY Author - version``).
 """
+
 from __future__ import annotations
 
 import re
@@ -47,6 +48,7 @@ class FedoraSource(HttpSource):
         meta_text = await self._fetch_text(meta_url)
 
         import json
+
         meta = json.loads(meta_text)
         branch = meta.get("default_branch", "rawhide")
 

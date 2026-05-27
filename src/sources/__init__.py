@@ -1,4 +1,5 @@
 """Pluggable changelog/spec/news/test sources."""
+
 from __future__ import annotations
 
 from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound

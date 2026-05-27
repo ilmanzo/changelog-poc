@@ -1,4 +1,5 @@
 """Abstract base for changelog data sources."""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -24,10 +25,10 @@ class FetchResult:
     """Outcome of a single ``ChangelogSource.fetch`` call (or a registry run)."""
 
     entries: list[ChangelogEntry]
-    upstream_url: str | None = None   # populated only by RpmSource
+    upstream_url: str | None = None  # populated only by RpmSource
     source_name: str = ""
-    distro: str = "opensuse"          # overridden by cross-distro sources
-    fetch_failed: bool = False        # set by registry when ≥1 source raised SourceError
+    distro: str = "opensuse"  # overridden by cross-distro sources
+    fetch_failed: bool = False  # set by registry when ≥1 source raised SourceError
 
     @property
     def is_empty(self) -> bool:
@@ -42,8 +43,7 @@ class ChangelogSource(ABC):
     is_local: bool = False  # True → tried first in parallel strategy
 
     @abstractmethod
-    async def fetch(self, package: str) -> FetchResult:
-        ...
+    async def fetch(self, package: str) -> FetchResult: ...
 
     async def close(self) -> None:  # noqa: B027 -- default no-op hook; subclasses opt in
         """Release held resources (HTTP sessions). Default no-op."""

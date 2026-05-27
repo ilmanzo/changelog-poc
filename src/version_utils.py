@@ -1,4 +1,5 @@
 """Pure helpers for version-string normalization and date parsing."""
+
 from __future__ import annotations
 
 import re
@@ -8,11 +9,11 @@ import dateparser
 
 from .models import ChangelogEntry
 
-CLEAN_RE = re.compile(r'[\+p].*$')
-HAS_DIGIT_RE = re.compile(r'\d')
-CVE_RE = re.compile(r'^CVE-\d{4}-\d{4,7}$', re.IGNORECASE)
+CLEAN_RE = re.compile(r"[\+p].*$")
+HAS_DIGIT_RE = re.compile(r"\d")
+CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,7}$", re.IGNORECASE)
 # Matches bsc#, boo#, bnc# with an optional leading URL prefix.
-BSC_RE = re.compile(r'^(?:bsc|boo|bnc)#\d+$', re.IGNORECASE)
+BSC_RE = re.compile(r"^(?:bsc|boo|bnc)#\d+$", re.IGNORECASE)
 
 DATEPARSER_SETTINGS = {
     "PREFER_DATES_FROM": "past",
@@ -22,7 +23,7 @@ DATEPARSER_SETTINGS = {
 
 
 def clean_version(v_str: str) -> str | None:
-    v = CLEAN_RE.sub('', str(v_str))
+    v = CLEAN_RE.sub("", str(v_str))
     return v if HAS_DIGIT_RE.search(v) else None
 
 

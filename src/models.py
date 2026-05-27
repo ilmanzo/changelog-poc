@@ -1,4 +1,5 @@
 """Frozen domain dataclasses shared across modules."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -35,7 +36,7 @@ class PackageMetadata:
 class SpecSection:
     """A single chunked section of a parsed .spec file."""
 
-    section_name: str        # 'header' | '%prep' | '%build' | '%install' | '%check' | '%changelog'
+    section_name: str  # 'header' | '%prep' | '%build' | '%install' | '%check' | '%changelog'
     chunk_index: int
     content: str
 
@@ -45,7 +46,7 @@ class NewsItem:
     """An item from Fedora Bodhi, openSUSE news RSS, or similar."""
 
     title: str
-    source: str              # 'bodhi' | 'opensuse-rss'
+    source: str  # 'bodhi' | 'opensuse-rss'
     item_type: str | None
     importance: str | None
     content: str | None
@@ -80,4 +81,4 @@ class Dependency:
 
     package_name: str
     dep_name: str
-    kind: str                # 'requires' | 'provides'
+    kind: str  # 'requires' | 'provides'

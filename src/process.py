@@ -1,4 +1,5 @@
 """Shared async subprocess runner used by RPMManager and GitManager."""
+
 from __future__ import annotations
 
 import asyncio
@@ -37,9 +38,7 @@ async def run_subprocess(
     except TimeoutError as exc:
         proc.kill()
         await proc.wait()
-        raise SubprocessTimeout(
-            f"{binary} {' '.join(args)} exceeded {timeout}s timeout"
-        ) from exc
+        raise SubprocessTimeout(f"{binary} {' '.join(args)} exceeded {timeout}s timeout") from exc
     if proc.returncode is None:  # pragma: no cover -- communicate() awaited
         raise RuntimeError(f"{binary} returned no exit code")
     return (

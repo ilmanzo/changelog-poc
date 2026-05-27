@@ -4,6 +4,7 @@ Scans a checkout of ``os-autoinst-distri-opensuse`` for ``.pm`` test files,
 extracting `# Package:` and `# Summary:` headers into ``OpenQATest`` records.
 The repo path is expected to already exist on disk (caller clones or updates).
 """
+
 from __future__ import annotations
 
 import re
@@ -45,7 +46,11 @@ def scan_tests(repo_path: str | Path) -> list[OpenQATest]:
         for raw in pkg_m.group(1).split():
             pkg = raw.strip().strip(",")
             if pkg:
-                out.append(OpenQATest(
-                    package_name=pkg, test_path=rel_path, summary=summary,
-                ))
+                out.append(
+                    OpenQATest(
+                        package_name=pkg,
+                        test_path=rel_path,
+                        summary=summary,
+                    )
+                )
     return out
