@@ -3,10 +3,13 @@
 
 Output docs/vhs/demo_untested.gif
 Set FontSize 16
-Set Width 1200
+Set Width 800
 Set Height 600
 Set Theme "Molokai"
 
-Type "gemini -y -p 'show me 5 packages with important changes in the last 3 months that dont have test covering those new features' --allowed-mcp-server-names=rpm"
+Type "gemini -y"
 Enter
-Sleep 60s
+Sleep 10s
+Type "show me 5 packages with important changes in the last 3 months that dont have test covering those new features"
+Enter
+Sleep 120s

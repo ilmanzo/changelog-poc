@@ -3,10 +3,13 @@
 
 Output docs/vhs/demo_changelog.gif
 Set FontSize 16
-Set Width 1200
+Set Width 800
 Set Height 600
 Set Theme "Molokai"
 
-Type "gemini -p 'what are the recent security-related changelog entries for openssl?' --allowed-mcp-server-names=rpm"
+Type "gemini -y"
 Enter
-Sleep 15s
+Sleep 10s
+Type "what are the recent security-related changelog entries for openssl?"
+Enter
+Sleep 120s

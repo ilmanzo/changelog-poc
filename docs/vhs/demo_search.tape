@@ -2,11 +2,14 @@
 # Prerequisites: PostgreSQL running, rpm-mcp database populated
 
 Output docs/vhs/demo_search.gif
-Set FontSize 14
-Set Width 1200
+Set FontSize 16
+Set Width 800
 Set Height 600
-Set Theme "Monokai"
+Set Theme "Molokai"
 
-Type "gemini -p 'find changelog entries mentioning CVE fixes for network packages in the last 6 months' --allowed-mcp-server-names=rpm"
+Type "gemini -y"
 Enter
-Sleep 15s
+Sleep 10s
+Type "find changelog entries mentioning CVE fixes for network packages in the last 6 months"
+Enter
+Sleep 120s
