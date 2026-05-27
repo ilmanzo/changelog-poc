@@ -454,3 +454,29 @@ def test_fts_search_with_since(vim_ingested, gemini_mcp, query, since):
         "Are all the result dates from the expected year or later?"
     )
     assert out.strip(), "gemini returned empty output"
+
+
+# ---------------------------------------------------------------------------
+# Category 7: Coverage gap analysis
+# ---------------------------------------------------------------------------
+@pytest.mark.e2e
+def test_find_untested_changes(packages_ingested, gemini_mcp):
+    """find_untested_changes surfaces packages with recent activity but no openQA tests.
+
+    Since the e2e DB has no openqa_tests rows, ingested packages (vim, curl)
+    should appear as untested.
+    """
+    out = _gemini(
+        f"Using the {MCP_SERVER_NAME} MCP server, show me 3 packages with "
+        "important changes in the last 6 months that don't have openQA tests "
+        "covering those new features.",
+        timeout=120,
+    )
+    assert out.strip(), "gemini returned empty output"
+    lower = out.lower()
+    assert any(pkg in lower for pkg in ["vim", "curl"]), (
+        f"Expected at least one ingested package in untested results:\n{out}"
+    )
+    assert any(kw in lower for kw in ["no", "untested", "without", "coverage", "test"]), (
+        f"Expected coverage gap language in output:\n{out}"
+    )
