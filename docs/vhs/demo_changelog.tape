@@ -2,11 +2,11 @@
 # Prerequisites: PostgreSQL running, rpm-mcp database populated
 
 Output docs/vhs/demo_changelog.gif
-Set FontSize 16
-Set Width 800
-Set Height 600
+Set FontSize 15
+Set Width 1024
+Set Height 1024
 Set Theme "Molokai"
 
-Type `gemini -y -p "what are the recent security-related changelog entries for openssl?"`
+Type `gemini -y -p "What are the 5 most relevant changes in vim between version 9.0 and 9.2?" 2>/dev/null`
 Enter
-Sleep 5m
+Sleep 2m

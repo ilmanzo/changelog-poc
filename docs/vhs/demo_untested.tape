@@ -2,11 +2,11 @@
 # Prerequisites: PostgreSQL running, rpm-mcp database populated, test repo ingested
 
 Output docs/vhs/demo_untested.gif
-Set FontSize 16
-Set Width 800
-Set Height 600
+Set FontSize 15
+Set Width 1024
+Set Height 1024
 Set Theme "Molokai"
 
-Type `gemini -y -p "show me 5 packages with important changes in the last 3 months that dont have test covering those new features"`
+Type `gemini -y -p "show me 5 packages with recent security fixes that doesn't have openQA coverage" 2>/dev/null`
 Enter
-Sleep 5m
+Sleep 2m
