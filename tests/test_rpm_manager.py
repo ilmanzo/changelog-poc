@@ -5,13 +5,11 @@ get_dependencies() / get_reverse_dependencies() patch self._exec.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from src.rpm_manager import RPMManager
-
 
 # ---------------------------------------------------------------------------
 # parse_changelog — static method, no mocking needed

@@ -7,8 +7,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from src.embedder import chunk_text, embed_batch, embed_one
 
 

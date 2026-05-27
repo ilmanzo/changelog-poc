@@ -7,7 +7,6 @@ from typing import ClassVar
 from ..config import settings
 from .release_source import ReleaseProvider, ReleaseSource
 
-
 _GITHUB_REPO_RE = re.compile(
     r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$"
 )

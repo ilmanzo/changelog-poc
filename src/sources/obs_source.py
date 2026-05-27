@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from async_lru import alru_cache
 
+from ..obs_parser import parse_obs_changes
 from .base import FetchResult
 from .http_source import HttpSource
-from ..obs_parser import parse_obs_changes
 
 
 class ObsSource(HttpSource):

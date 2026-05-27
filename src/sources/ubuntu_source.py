@@ -10,9 +10,9 @@ import re
 
 from async_lru import alru_cache
 
+from ..debian_parser import parse_debian_changelog
 from .base import FetchResult
 from .http_source import HttpSource
-from ..debian_parser import parse_debian_changelog
 
 _PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.DOTALL)
 

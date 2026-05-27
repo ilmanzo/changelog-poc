@@ -1,8 +1,6 @@
 """Unit tests for src/spec_url_extractor.py — pure text, no network."""
 from __future__ import annotations
 
-import pytest
-
 from src.spec_url_extractor import extract_upstream_urls
 
 SPEC_GITHUB = """\

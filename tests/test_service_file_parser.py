@@ -1,8 +1,6 @@
 """Unit tests for src/service_file_parser.py — pure XML parsing."""
 from __future__ import annotations
 
-import pytest
-
 from src.service_file_parser import extract_urls_from_service
 
 OBS_SCM_SERVICE = """\

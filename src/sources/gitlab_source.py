@@ -8,7 +8,6 @@ from urllib.parse import quote_plus, urlparse
 from ..config import settings
 from .release_source import ReleaseProvider, ReleaseSource
 
-
 # Hardcoded allowlist of known GitLab instances. The regex on its own
 # (host + 2-segment path) would accept arbitrary hosts, which is an
 # SSRF surface when the URL comes from an untrusted spec file.

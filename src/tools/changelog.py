@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
-from packaging import version as pkg_version
 
+from packaging import version as pkg_version
 from src import embedder
 from src.ingest import IngestStatus, validate_package_name
 from src.models import ChangelogEntry
@@ -21,11 +21,11 @@ from src.tools._helpers import (
     MSG_PKG_QUEUED,
     MSG_UNTIL_UNPARSEABLE,
     ReleaseGroup,
-    _Readiness,
     _ensure_and_load_entries,
     _format_date,
     _format_listing_rows,
     _format_match_rows,
+    _Readiness,
     _records_to_entries,
     _validate_bug_id,
     _validate_cve_id,

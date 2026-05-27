@@ -1,6 +1,7 @@
 """Unit tests for src/news_fetcher.py — mock httpx.AsyncClient."""
 from __future__ import annotations
 
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,9 +9,9 @@ import pytest
 from src.news_fetcher import (
     _classify_bodhi,
     _pkg_from_title,
+    fetch_all_news,
     fetch_bodhi,
     fetch_opensuse_news,
-    fetch_all_news,
 )
 
 
@@ -178,11 +179,12 @@ async def test_fetch_opensuse_news_rejects_xxe() -> None:
 # fetch_all_news
 # ---------------------------------------------------------------------------
 async def test_fetch_all_news_concatenates_both_feeds() -> None:
+    from datetime import datetime
+
     from src.models import NewsItem
-    from datetime import datetime, timezone
 
     def _item(source: str) -> NewsItem:
-        return NewsItem(title="t", source=source, item_type="bugfix", importance="Routine", content=None, url=None, date=datetime.now(timezone.utc))
+        return NewsItem(title="t", source=source, item_type="bugfix", importance="Routine", content=None, url=None, date=datetime.now(UTC))
 
     with (
         patch("src.news_fetcher.fetch_bodhi", new=AsyncMock(return_value=[_item("bodhi")])),

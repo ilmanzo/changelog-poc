@@ -89,7 +89,7 @@ class RPMManager:
             for candidate in (
                 f"patterns-base-{pattern_name}",
                 f"patterns-openSUSE-{pattern_name}",
-                f"patterns-base",
+                "patterns-base",
             ):
                 stdout, _, rc = await self._exec("-q", "--qf", "%{NAME}\n", "--", candidate)
                 if rc == 0 and stdout.strip():

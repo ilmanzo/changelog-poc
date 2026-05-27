@@ -1,9 +1,8 @@
 """Unit tests for src/sources/registry.py — mock ChangelogSource objects."""
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, call
-
-import pytest
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 from src.models import ChangelogEntry
 from src.sources.base import (
@@ -14,11 +13,9 @@ from src.sources.base import (
 )
 from src.sources.registry import FetchStrategy, SourceRegistry
 
-from datetime import datetime, timezone
-
 _ENTRY = ChangelogEntry(
     version="1.0", author="user",
-    date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+    date=datetime(2024, 1, 1, tzinfo=UTC),
     content="Fix security issue",
 )
 _RESULT = FetchResult(entries=[_ENTRY], source_name="mock-source")

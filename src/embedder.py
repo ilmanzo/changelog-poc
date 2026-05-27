@@ -6,7 +6,7 @@ both the ingest path (batched) and the query path (single-string).
 from __future__ import annotations
 
 import asyncio
-from typing import Iterable
+from collections.abc import Iterable
 
 import structlog
 from fastembed import TextEmbedding

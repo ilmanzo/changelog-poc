@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from src.version_utils import BSC_RE, CVE_RE, clean_version, content_matches, parse_when
 from src.models import ChangelogEntry
+from src.version_utils import BSC_RE, CVE_RE, clean_version, content_matches, parse_when
 
 
 # ---------------------------------------------------------------------------

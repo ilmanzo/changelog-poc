@@ -5,8 +5,9 @@ import contextvars
 import functools
 import inspect
 import time
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any
 
 import structlog
 

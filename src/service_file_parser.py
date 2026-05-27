@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import defusedxml.ElementTree as ET
 
-
 _SCM_SERVICE_NAMES = frozenset({
     "obs_scm",
     "tar_scm",

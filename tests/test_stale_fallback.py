@@ -1,7 +1,7 @@
 """Unit tests for P2+DD3: stale-data fallback + WARNING banner."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,7 +10,7 @@ from src.ingest import IngestService, IngestStatus
 from src.models import ChangelogEntry
 from src.sources.base import FetchResult
 
-_SYNCED_AT = datetime(2024, 1, 15, 9, 30, tzinfo=timezone.utc)
+_SYNCED_AT = datetime(2024, 1, 15, 9, 30, tzinfo=UTC)
 _CACHED_ROWS = [
     {"version": "1.0", "author": "dev", "entry_date": _SYNCED_AT, "content": "cached entry"},
     {"version": "0.9", "author": "dev", "entry_date": _SYNCED_AT, "content": "old entry"},
@@ -163,7 +163,7 @@ async def test_tool_wrapper_isolates_stale_state_between_calls() -> None:
 async def test_ensure_or_queue_marks_stale_on_stale_ingest(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
     from src.runtime import db, ingest_service
-    from src.tools._helpers import _Readiness, _ensure_or_queue
+    from src.tools._helpers import _ensure_or_queue, _Readiness
 
     monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=42))
     monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=False))
@@ -196,7 +196,7 @@ async def test_ensure_or_queue_marks_stale_on_stale_ingest(monkeypatch: pytest.M
 async def test_ensure_or_queue_does_not_mark_on_indexed(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.ingest import IngestResult
     from src.runtime import db, ingest_service
-    from src.tools._helpers import _Readiness, _ensure_or_queue
+    from src.tools._helpers import _ensure_or_queue, _Readiness
 
     monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=42))
     monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=False))

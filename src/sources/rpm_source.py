@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from async_lru import alru_cache
 
-from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
 from ..rpm_manager import RPMManager
+from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
 
 
 class RpmSource(ChangelogSource):

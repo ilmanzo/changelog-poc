@@ -1,16 +1,16 @@
 """Unit tests for src/ingest.py — mock registry, db, and embedder."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.ingest import IngestResult, IngestService, IngestStatus, validate_package_name
+from src.ingest import IngestService, IngestStatus, validate_package_name
 from src.models import ChangelogEntry
-from src.sources.base import FetchResult, SourceError
+from src.sources.base import FetchResult
 
-_NOW = datetime(2024, 1, 1, tzinfo=timezone.utc)
+_NOW = datetime(2024, 1, 1, tzinfo=UTC)
 
 _ENTRIES = [
     ChangelogEntry(version="1.0", author="dev", date=_NOW, content="Fix CVE-2024-1234"),

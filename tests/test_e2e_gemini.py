@@ -32,7 +32,6 @@ checkout and are not automated here — test manually with:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 

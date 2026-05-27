@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.ingest import IngestResult, IngestService, IngestStatus
+from src.ingest import IngestService, IngestStatus
 from src.models import ChangelogEntry
 from src.sources.base import FetchResult
 
-_NOW = datetime(2024, 6, 1, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, tzinfo=UTC)
 _ENTRY = ChangelogEntry(version="1.0", author="a", date=_NOW, content="x")
 _RESULT = FetchResult(entries=[_ENTRY], source_name="rpm")
 
@@ -151,7 +151,7 @@ async def test_ensure_or_queue_returns_queued_for_unknown_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.runtime import db, ingest_service
-    from src.tools._helpers import _Readiness, _ensure_or_queue
+    from src.tools._helpers import _ensure_or_queue, _Readiness
 
     monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=None))
 
@@ -177,7 +177,7 @@ async def test_ensure_or_queue_returns_ready_for_fresh_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.runtime import db, ingest_service
-    from src.tools._helpers import _Readiness, _ensure_or_queue
+    from src.tools._helpers import _ensure_or_queue, _Readiness
 
     monkeypatch.setattr(db, "get_package_id", AsyncMock(return_value=7))
     monkeypatch.setattr(db, "is_fresh", AsyncMock(return_value=True))

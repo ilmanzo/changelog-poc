@@ -10,10 +10,10 @@ import re
 
 from async_lru import alru_cache
 
-from .base import FetchResult, SourceNotFound
-from .http_source import HttpSource
 from ..obs_parser import parse_obs_changes
 from ..rpm_manager import RPMManager
+from .base import FetchResult, SourceNotFound
+from .http_source import HttpSource
 
 _CHANGELOG_SPLIT = re.compile(r"^%changelog\s*$", re.MULTILINE | re.IGNORECASE)
 _RPM_HEADER = re.compile(r"^\* [A-Z][a-z]{2} [A-Z][a-z]{2}")

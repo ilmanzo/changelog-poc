@@ -6,8 +6,8 @@ imports the tool modules).
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import structlog
 
@@ -16,7 +16,6 @@ from src.db import Database
 from src.git_manager import GitManager
 from src.ingest import IngestService
 from src.rpm_manager import RPMManager
-from src.test_repo_manager import TestRepoManager
 from src.sources import (
     FedoraSource,
     FetchStrategy,
@@ -26,6 +25,7 @@ from src.sources import (
     SourceRegistry,
     UbuntuSource,
 )
+from src.test_repo_manager import TestRepoManager
 
 _logger = structlog.get_logger("rpm-mcp.server")
 

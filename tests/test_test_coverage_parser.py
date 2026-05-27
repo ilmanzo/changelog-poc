@@ -12,7 +12,6 @@ from src.test_coverage_parser import (
     scan_test_directory,
 )
 
-
 ZYPPER_INSTALL = dedent("""\
     sub run {
         zypper_call("install vim");

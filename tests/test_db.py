@@ -9,7 +9,7 @@ Run with:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -22,8 +22,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 PG_IMAGE = "pgvector/pgvector:pg17"
 _ZERO_VEC = [0.0] * 384
-_NOW = datetime(2024, 6, 1, tzinfo=timezone.utc)
-_OLD = datetime(2022, 1, 1, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, tzinfo=UTC)
+_OLD = datetime(2022, 1, 1, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +130,7 @@ async def test_fts_search_with_since_filter(database: Database) -> None:
         "test-fts-since", pkg_id, [recent, old], [_ZERO_VEC, _ZERO_VEC], "rpm"
     )
 
-    cutoff = datetime(2023, 1, 1, tzinfo=timezone.utc)
+    cutoff = datetime(2023, 1, 1, tzinfo=UTC)
     rows = await database.fts_search("memory", since=cutoff, limit=10)
 
     # Only the 2024 entry should appear (old 2022 entry excluded)

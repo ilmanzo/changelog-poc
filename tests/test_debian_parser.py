@@ -1,8 +1,6 @@
 """Unit tests for src/debian_parser.py — pure text parsing, no mocking needed."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pytest
 
 from src.debian_parser import parse_debian_changelog

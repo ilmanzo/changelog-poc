@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import asyncpg
 import structlog
@@ -373,22 +374,21 @@ class Database:
         sections: list[SpecSection],
         embeddings: list[list[float]],
     ) -> None:
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM spec_sections WHERE spec_id = $1", spec_id)
-                rows = [
-                    (spec_id, s.section_name, s.chunk_index, s.content, emb or None)
-                    for s, emb in zip(sections, embeddings)
-                ]
-                if rows:
-                    await conn.executemany(
-                        """
+        async with self.pool.acquire() as conn, conn.transaction():
+            await conn.execute("DELETE FROM spec_sections WHERE spec_id = $1", spec_id)
+            rows = [
+                (spec_id, s.section_name, s.chunk_index, s.content, emb or None)
+                for s, emb in zip(sections, embeddings)
+            ]
+            if rows:
+                await conn.executemany(
+                    """
                         INSERT INTO spec_sections
                             (spec_id, section_name, chunk_index, content, embedding)
                         VALUES ($1, $2, $3, $4, $5)
                         """,
-                        rows,
-                    )
+                    rows,
+                )
 
     async def get_spec(self, package_id: int, source: str) -> asyncpg.Record | None:
         async with self.pool.acquire() as conn:
@@ -618,7 +618,7 @@ class Database:
             )
         if not row:
             return False
-        age = (datetime.now(timezone.utc) - row["synced_at"]).total_seconds()
+        age = (datetime.now(UTC) - row["synced_at"]).total_seconds()
         return age < ttl_seconds
 
     async def get_synced_at(

@@ -114,7 +114,7 @@ class IngestService:
     async def _ingest_one(self, package: str, distro: str) -> IngestResult:
         try:
             return await self._do_ingest(package, distro)
-        except Exception as exc:  # noqa: BLE001 — background safety net
+        except Exception as exc:
             self._log.exception("ingest_failed", package=package)
             return IngestResult(
                 package=package,
