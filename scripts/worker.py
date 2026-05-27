@@ -24,10 +24,12 @@ import structlog
 from src.config import settings
 from src.ingest import IngestResult, IngestService, IngestStatus
 from src.logging_config import configure_logging
+from src.models import OpenQATest
 from src.news_fetcher import fetch_all_news
 from src.openqa_fetcher import scan_tests
 from src.process import run_subprocess
 from src.runtime import db, ingest_service, lifespan, rpm_mgr
+from src.test_repo_manager import TestRepoManager
 
 
 async def _load_packages(args: argparse.Namespace) -> list[str]:
@@ -77,6 +79,18 @@ async def _run(args: argparse.Namespace) -> int:
             inserted = await db.upsert_openqa(tests)
             log.info("openqa_refreshed", inserted=inserted)
 
+        if args.test_repo or args.all:
+            mgr = TestRepoManager()
+            await mgr.clone_or_pull()
+            coverage = mgr.scan()
+            oqa_tests = [
+                OpenQATest(package_name=pkg, test_path=path, summary=None)
+                for path, pkgs in coverage.items()
+                for pkg in pkgs
+            ]
+            inserted = await db.upsert_openqa(oqa_tests)
+            log.info("test_repo_refreshed", tests=inserted, files=len(coverage))
+
         if args.packages_path_provided or args.all:
             pkgs = await _load_packages(args)
             log.info("ingest_start", count=len(pkgs), concurrency=args.concurrency)
@@ -96,6 +110,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--news", action="store_true", help="Refresh news feeds")
     p.add_argument("--openqa", type=Path,
                    help="Path to a checked-out os-autoinst-distri-opensuse repo to scan")
+    p.add_argument("--test-repo", action="store_true",
+                   help="Clone/pull os-autoinst test repo and ingest package-test mappings")
     p.add_argument("--sweep", action="store_true",
                    help="Evict per-kind manifest rows older than their CACHE_TTL_*_S")
     p.add_argument("--all", action="store_true",

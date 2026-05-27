@@ -16,6 +16,7 @@ from src.db import Database
 from src.git_manager import GitManager
 from src.ingest import IngestService
 from src.rpm_manager import RPMManager
+from src.test_repo_manager import TestRepoManager
 from src.sources import (
     FedoraSource,
     FetchStrategy,
@@ -36,6 +37,7 @@ source_registry = SourceRegistry(
     strategy=FetchStrategy(settings.fetch_strategy),
 )
 ingest_service = IngestService(source_registry, db)
+test_repo_mgr = TestRepoManager()
 
 
 @asynccontextmanager
