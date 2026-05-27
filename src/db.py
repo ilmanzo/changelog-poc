@@ -401,18 +401,37 @@ class Database:
     # news + openqa
     # ------------------------------------------------------------------
     async def upsert_news(self, items: Iterable[NewsItem]) -> int:
-        rows: list[tuple[Any, ...]] = []
-        for n in items:
-            pkg_id = None
-            if n.package_name:
-                pkg_id = await self.upsert_package(n.package_name)
-            rows.append((
-                pkg_id, n.title, n.source, n.item_type, n.importance,
-                n.content, n.url, n.date,
-            ))
-        if not rows:
+        """Bulk insert news rows. Implicitly upserts referenced packages in
+        one round-trip (the package_name -> id resolution would otherwise be
+        N+1 against ``packages``).
+        """
+        items_list = list(items)
+        if not items_list:
             return 0
-        async with self.pool.acquire() as conn:
+
+        names = sorted({n.package_name for n in items_list if n.package_name})
+        async with self.pool.acquire() as conn, conn.transaction():
+            id_by_name: dict[str, int] = {}
+            if names:
+                pkg_rows = await conn.fetch(
+                    """
+                    INSERT INTO packages (name, distro)
+                    SELECT name, 'opensuse' FROM unnest($1::text[]) AS t(name)
+                    ON CONFLICT (name, distro) DO UPDATE SET name = EXCLUDED.name
+                    RETURNING id, name
+                    """,
+                    names,
+                )
+                id_by_name = {str(r["name"]): int(r["id"]) for r in pkg_rows}
+
+            rows = [
+                (
+                    id_by_name.get(n.package_name) if n.package_name else None,
+                    n.title, n.source, n.item_type, n.importance,
+                    n.content, n.url, n.date,
+                )
+                for n in items_list
+            ]
             await conn.executemany(
                 """
                 INSERT INTO news
