@@ -186,6 +186,56 @@ def _tool_wrapper(tool_name: str):
 End state: **257 unit tests, full suite runs in under 3 seconds**.
 The DB integration tests run separately via testcontainers + Podman -- 19 tests, all green.
 
+### Day 3, afternoon: code review burndown
+
+With tests in place the afternoon was a focused code review pass -- 27 items, prioritised by
+production impact. The interesting ones:
+
+**Event loop blocking in the embedder.** `fastembed`'s `model.embed()` is synchronous CPU-bound
+code running directly inside `async def embed_batch()`. During ingest it was freezing the entire
+asyncio event loop -- no other tool call could be served until embedding finished.
+Fix: `await asyncio.to_thread(lambda: list(model.embed(texts)))`. One line, measurable throughput improvement.
+
+**Non-atomic eviction.** `evict_stale()` ran two separate `DELETE` statements -- one for
+`changelog_entries`, one for `manifest` -- without a transaction. A crash between them would
+leave an orphaned manifest row that would permanently mark a package as fresh even after its
+data was gone. Fix: wrap both deletes in `async with conn.transaction()`.
+
+**SSRF surface in GitLabSource.** The regex matching GitLab URLs accepted any host with a
+two-segment path. A malicious upstream URL extracted from a spec file could redirect requests
+to an internal host. Fix: constrain to an explicit forge allowlist already present elsewhere
+in the codebase.
+
+**GitHub and GitLab sources were 95% identical.** ~200 lines duplicated; only the URL template,
+auth header key, and three JSON field names differed. Extracted a `ReleaseSource` base class
+with provider-specific config injected at construction. Both sources collapsed to ~40 lines each.
+
+**HTTP stack split.** At some point `httpx` crept in alongside `aiohttp` -- the news fetcher and
+spec sources were using it while everything else used aiohttp. Two HTTP clients, two retry
+policies, two session lifetimes. Consolidated to a single aiohttp stack with a shared
+`make_client_session()` factory. `httpx` dropped from direct dependencies.
+
+**Linting baseline.** Wired `ruff` with rule packs covering style, imports, type annotations,
+security, and asyncio patterns. First run: 45 issues. All cleared in two commits -- 28 auto-fixed,
+17 manual. Imports standardised to relative throughout `src/`.
+
+### Day 3, end of day: configuration and documentation
+
+**`.env` file support.** With 25 environment variables the setup story was getting unwieldy.
+`pydantic-settings` already supports `.env` file loading -- one line in the `Settings` model
+config enables it. Added `.env.example` with the five variables operators actually need to touch.
+OS environment variables still take precedence; the `.env` file is just a convenience.
+
+**Architecture diagrams.** The architecture document had ASCII art and inline mermaid blocks
+that only rendered in specific viewers. Converted to proper Mermaid source files and a
+`scripts/render_diagrams.sh` that pulls the official mermaid-cli container via Podman to render
+SVGs -- no Node.js or npm required on the host. Four diagrams committed: component overview,
+ingest data flow, sync+search sequence, FTS sequence.
+
+**This diary and the GitHub wiki.** Wrote this development diary and published it to the project
+wiki at [github.com/ilmanzo/changelog-poc/wiki](https://github.com/ilmanzo/changelog-poc/wiki)
+with animated GIF demos embedded directly in the page.
+
 ---
 
 ## After the sprint -- production hardening
