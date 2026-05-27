@@ -359,7 +359,7 @@ def _filter_entries_by_version(
                     relevant.append(e)
         if relevant:
             return relevant, "semver"
-    except Exception:
+    except (pkg_version.InvalidVersion, ValueError, TypeError):
         relevant = [e for e in entries if content_matches(e, version_start, version_end)]
         if relevant:
             return relevant, "fuzzy_fallback"

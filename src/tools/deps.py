@@ -66,6 +66,8 @@ async def get_dependency_changes(
     ok = err = missing = queued = 0
     for dep, res in zip(deps_list, results):
         if isinstance(res, BaseException):
+            if not isinstance(res, Exception):
+                raise res
             err += 1
             lines.append(f"\n## {dep}: error -- {res}")
             continue
