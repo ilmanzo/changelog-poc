@@ -252,25 +252,25 @@ The MCP server starts in the background; gemini-cli queries it directly over std
 
 ![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
 
-Asking: "what are the recent security-related changelog entries for openssl?"
+Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"
 
 ### Semantic search
 
 ![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
 
-Asking: "find changelog entries mentioning CVE fixes for network packages in the last 6 months"
+Asking: "find network related packages whose changelog entries mention new command line flags in the last 2 months"
 
 ### Untested changes
 
 ![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
 
-Asking: "show me 5 packages with important changes in the last 3 months that have no test coverage"
+Asking: "show me 5 packages with recent security fixes that doesn't have openQA coverage"
 
 ### CVE timeline
 
 ![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
 
-Asking: "show a timeline of privilege escalation CVE fixes across all packages"
+Asking: "show me a summary of the packages updated since last month that have CVE fixes related to privilege escalation"
 
 ---
 
