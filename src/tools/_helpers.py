@@ -7,9 +7,10 @@ match/listing tables, and the `_Readiness` enum returned by
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, Mapping, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from src.config import settings
 from src.ingest import IngestStatus
@@ -48,16 +49,20 @@ def _format_date(dt: datetime | None) -> str:
     return dt.date().isoformat() if dt else "?"
 
 
+def _validate_with_regex(
+    value: str, pattern: re.Pattern[str], err_template: str, normalize: Callable[[str], str]
+) -> str:
+    if not pattern.match(value):
+        raise ValueError(err_template.format(value))
+    return normalize(value)
+
+
 def _validate_cve_id(cve_id: str) -> str:
-    if not CVE_RE.match(cve_id):
-        raise ValueError(MSG_INVALID_CVE.format(cve_id))
-    return cve_id.upper()
+    return _validate_with_regex(cve_id, CVE_RE, MSG_INVALID_CVE, str.upper)
 
 
 def _validate_bug_id(bug_id: str) -> str:
-    if not BSC_RE.match(bug_id):
-        raise ValueError(MSG_INVALID_BUG.format(bug_id))
-    return bug_id.lower()
+    return _validate_with_regex(bug_id, BSC_RE, MSG_INVALID_BUG, str.lower)
 
 
 def parse_when_or_msg(value: str | None, *, kind: str = "since") -> tuple[datetime | None, str | None]:
