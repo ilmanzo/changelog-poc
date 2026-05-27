@@ -13,7 +13,7 @@ from .sanitize import scrub_external
 
 _BLOCK_SPLIT = re.compile(r"^-{67}$", re.MULTILINE)
 
-# Why: timezone abbreviation length is 3–5 chars (UTC=3, CEST/AEST=4, AEDT=4,
+# Why: timezone abbreviation length is 3 to 5 chars (UTC=3, CEST/AEST=4, AEDT=4,
 # WEST=4, MSKT=4, NZDST=5). The original {3} silently dropped non-3-char-TZ
 # entries because the regex never matched and the block was discarded.
 _HEADER_RE = re.compile(

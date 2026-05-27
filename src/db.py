@@ -542,18 +542,17 @@ class Database:
     async def replace_deps(
         self, package_id: int, dep_names: Iterable[str], kind: str
     ) -> None:
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    "DELETE FROM deps WHERE package_id = $1 AND kind = $2",
-                    package_id, kind,
+        async with self.pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "DELETE FROM deps WHERE package_id = $1 AND kind = $2",
+                package_id, kind,
+            )
+            rows = [(package_id, d, kind) for d in dep_names]
+            if rows:
+                await conn.executemany(
+                    "INSERT INTO deps (package_id, dep_name, kind) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                    rows,
                 )
-                rows = [(package_id, d, kind) for d in dep_names]
-                if rows:
-                    await conn.executemany(
-                        "INSERT INTO deps (package_id, dep_name, kind) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-                        rows,
-                    )
 
     async def get_deps(self, package_name: str, kind: str = "requires") -> list[str]:
         async with self.pool.acquire() as conn:

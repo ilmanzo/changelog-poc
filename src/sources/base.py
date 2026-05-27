@@ -45,5 +45,5 @@ class ChangelogSource(ABC):
     async def fetch(self, package: str) -> FetchResult:
         ...
 
-    async def close(self) -> None:
+    async def close(self) -> None:  # noqa: B027 -- default no-op hook; subclasses opt in
         """Release held resources (HTTP sessions). Default no-op."""

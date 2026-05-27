@@ -4,9 +4,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
-import os
 import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -66,7 +66,7 @@ def _add_tool_subparser(
 
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Callable[..., Awaitable[str]]]]:
     parser = argparse.ArgumentParser(
-        prog=os.path.basename(sys.argv[0]),
+        prog=Path(sys.argv[0]).name,
         description="rpm-mcp -- invoke a tool directly (CLI) or run as MCP server (default).",
     )
     subparsers = parser.add_subparsers(dest="tool", metavar="TOOL")

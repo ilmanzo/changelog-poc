@@ -11,7 +11,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 
 import structlog
 
@@ -29,7 +29,7 @@ def validate_package_name(package: str) -> None:
         raise ValueError(f"Invalid package name: {package!r}")
 
 
-class IngestStatus(str, Enum):
+class IngestStatus(StrEnum):
     INDEXED = "indexed"
     EMPTY = "empty"
     INVALID = "invalid"

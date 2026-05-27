@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from enum import Enum
+from enum import StrEnum
 
 import structlog
 
@@ -11,7 +11,7 @@ from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
 logger = structlog.get_logger("rpm-mcp.sources")
 
 
-class FetchStrategy(str, Enum):
+class FetchStrategy(StrEnum):
     WATERFALL = "waterfall"
     PARALLEL = "parallel"
 

@@ -16,8 +16,8 @@ _logger = structlog.get_logger("rpm-mcp.server")
 # Per-task scratch state. _log_extras feeds the wrapper's terminal log record;
 # _stale_state is set by helpers that fell back to cached data so the wrapper
 # can prepend a one-line WARNING banner.
-_log_extras: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
-    "_log_extras", default={}
+_log_extras: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "_log_extras", default=None
 )
 _stale_state: contextvars.ContextVar[datetime | None] = contextvars.ContextVar(
     "_stale_state", default=None
@@ -37,7 +37,7 @@ def suppress_untrusted_envelope() -> None:
 
 def _tlog(**fields: Any) -> None:
     """Attach structured fields to the wrapping tool's terminal log record."""
-    _log_extras.set({**_log_extras.get(), **fields})
+    _log_extras.set({**(_log_extras.get() or {}), **fields})
 
 
 def _mark_stale(synced_at: datetime | None) -> None:
@@ -102,7 +102,7 @@ def _tool_wrapper(
                     "tool_done",
                     elapsed_s=round(time.perf_counter() - t0, 3),
                     stale=stale_at is not None,
-                    **_log_extras.get(),
+                    **(_log_extras.get() or {}),
                 )
                 body = _wrap_untrusted(result, untrusted_sources)
                 return _stale_banner(stale_at) + body if stale_at is not None else body
@@ -110,7 +110,7 @@ def _tool_wrapper(
                 log.exception(
                     "tool_error",
                     elapsed_s=round(time.perf_counter() - t0, 3),
-                    **_log_extras.get(),
+                    **(_log_extras.get() or {}),
                 )
                 return f"Error in {tool_name} for {bound.get('package', '?')}: {e}"
             finally:

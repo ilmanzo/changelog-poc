@@ -10,7 +10,7 @@ import re
 from collections.abc import Callable, Mapping
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 from src.config import settings
 from src.ingest import IngestStatus
@@ -38,8 +38,8 @@ MSG_UNKNOWN_SPEC_SOURCE = "Unknown source {!r}. Use 'opensuse' or 'fedora'."
 CVE_CONTENT_RE = re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)
 BSC_CONTENT_RE = re.compile(r"\b(?:bsc|boo|bnc)#\d+\b", re.IGNORECASE)
 
-ReleaseGroup: TypeAlias = tuple[str, datetime, list[ChangelogEntry]]
-SqlRow: TypeAlias = Mapping[str, Any]
+type ReleaseGroup = tuple[str, datetime, list[ChangelogEntry]]
+type SqlRow = Mapping[str, Any]
 
 
 # ---------------------------------------------------------------------------
