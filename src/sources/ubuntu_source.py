@@ -1,10 +1,12 @@
-"""Changelog source: Ubuntu/Debian changelogs.ubuntu.com.
+"""Changelog source: Ubuntu via Launchpad.
 
-Uses the simple URL pattern that serves the latest changelog for any
-source package. No version resolution needed — the endpoint always
-returns the current changelog.
+Fetches the ``+changelog`` HTML page from Launchpad and extracts
+Debian-format changelog entries from ``<pre>`` blocks.
 """
 from __future__ import annotations
+
+import html
+import re
 
 from async_lru import alru_cache
 
@@ -12,24 +14,25 @@ from .base import FetchResult
 from .http_source import HttpSource
 from ..debian_parser import parse_debian_changelog
 
+_PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.DOTALL)
+
 
 class UbuntuSource(HttpSource):
-    """Fetches changelogs from changelogs.ubuntu.com by source package name.
-
-    "Easy to find" heuristic: try the same name as the RPM package.
-    If 404, HttpSource._fetch_text raises SourceNotFound and the
-    registry moves on.
-    """
+    """Fetches changelogs from Launchpad by source package name."""
 
     name = "ubuntu"
     distro = "ubuntu"
-    _BASE_URL = "https://changelogs.ubuntu.com/changelogs/binary"
+    _BASE_URL = "https://launchpad.net/ubuntu/+source"
 
     @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
-        url = f"{self._BASE_URL}/{package}/changelog"
-        text = await self._fetch_text(url)
+        url = f"{self._BASE_URL}/{package}/+changelog"
+        page = await self._fetch_text(url)
+        blocks = _PRE_RE.findall(page)
+        if not blocks:
+            return FetchResult(entries=[], source_name=self.name, distro="ubuntu")
+        changelog_text = "\n\n".join(html.unescape(b) for b in blocks)
         entries = parse_debian_changelog(
-            text, package=package, source=self.name,
+            changelog_text, package=package, source=self.name,
         )
         return FetchResult(entries=entries, source_name=self.name, distro="ubuntu")

@@ -8,18 +8,29 @@ import pytest
 from src.sources.base import SourceNotFound
 from src.sources.ubuntu_source import UbuntuSource
 
-CHANGELOG_TEXT = """\
-vim (2:9.1.0016-1ubuntu1) noble; urgency=medium
+LAUNCHPAD_HTML = """\
+<html><body>
+<div class="boardComment">
+  <div class="boardCommentBody">
+    <pre style="margin: 0" id="vim_9.1.0016-1ubuntu1">vim (2:9.1.0016-1ubuntu1) noble; urgency=medium
 
   * Security fix for CVE-2024-22667.
 
- -- James McCoy <jamessan@debian.org>  Mon, 15 Jan 2024 07:11:08 -0500
-
-vim (2:9.0.2189-2ubuntu1) mantic; urgency=medium
+ -- James McCoy &lt;jamessan@debian.org&gt;  Mon, 15 Jan 2024 07:11:08 -0500
+</pre>
+  </div>
+</div>
+<div class="boardComment">
+  <div class="boardCommentBody">
+    <pre style="margin: 0" id="vim_9.0.2189-2ubuntu1">vim (2:9.0.2189-2ubuntu1) mantic; urgency=medium
 
   * Merge from Debian unstable.
 
- -- Bryce Harrington <bryce@ubuntu.com>  Thu, 30 Nov 2023 12:22:46 -0800
+ -- Bryce Harrington &lt;bryce@ubuntu.com&gt;  Thu, 30 Nov 2023 12:22:46 -0800
+</pre>
+  </div>
+</div>
+</body></html>
 """
 
 
@@ -32,7 +43,7 @@ def source() -> UbuntuSource:
 
 async def test_fetch_parses_entries(source: UbuntuSource) -> None:
     with patch.object(source, "_fetch_text", new_callable=AsyncMock) as mock_fetch:
-        mock_fetch.return_value = CHANGELOG_TEXT
+        mock_fetch.return_value = LAUNCHPAD_HTML
         result = await source.fetch("vim")
 
     assert len(result.entries) == 2
@@ -51,9 +62,27 @@ async def test_fetch_404_raises_not_found(source: UbuntuSource) -> None:
 
 async def test_fetch_url_pattern(source: UbuntuSource) -> None:
     with patch.object(source, "_fetch_text", new_callable=AsyncMock) as mock_fetch:
-        mock_fetch.return_value = CHANGELOG_TEXT
+        mock_fetch.return_value = LAUNCHPAD_HTML
         await source.fetch("openssl")
 
     mock_fetch.assert_awaited_once_with(
-        "https://changelogs.ubuntu.com/changelogs/binary/openssl/changelog"
+        "https://launchpad.net/ubuntu/+source/openssl/+changelog"
     )
+
+
+async def test_fetch_html_entities_unescaped(source: UbuntuSource) -> None:
+    """HTML entities like &lt; in author emails are properly unescaped."""
+    with patch.object(source, "_fetch_text", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = LAUNCHPAD_HTML
+        result = await source.fetch("vim")
+
+    assert "&lt;" not in result.entries[0].content
+    assert "&gt;" not in result.entries[0].content
+
+
+async def test_fetch_no_pre_blocks_returns_empty(source: UbuntuSource) -> None:
+    with patch.object(source, "_fetch_text", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = "<html><body>No changelog here</body></html>"
+        result = await source.fetch("vim")
+
+    assert len(result.entries) == 0

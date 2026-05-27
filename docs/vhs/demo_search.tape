@@ -7,9 +7,6 @@ Set Width 800
 Set Height 600
 Set Theme "Molokai"
 
-Type "gemini -y"
+Type `gemini -y -p "find changelog entries mentioning CVE fixes for network packages in the last 6 months"`
 Enter
-Sleep 10s
-Type "find changelog entries mentioning CVE fixes for network packages in the last 6 months"
-Enter
-Sleep 3m
+Sleep 5m

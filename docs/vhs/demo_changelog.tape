@@ -7,9 +7,6 @@ Set Width 800
 Set Height 600
 Set Theme "Molokai"
 
-Type "gemini -y"
+Type `gemini -y -p "what are the recent security-related changelog entries for openssl?"`
 Enter
-Sleep 10s
-Type "what are the recent security-related changelog entries for openssl?"
-Enter
-Sleep 3m
+Sleep 5m

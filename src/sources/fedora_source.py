@@ -1,4 +1,9 @@
-"""Changelog source: Fedora via Pagure spec %changelog section."""
+"""Changelog source: Fedora via Pagure dist-git.
+
+Tries the standalone ``changelog`` file first (rpmautospec), then falls
+back to extracting ``%changelog`` from the spec file. Both use RPM
+changelog format (``* Day Mon DD YYYY Author - version``).
+"""
 from __future__ import annotations
 
 import re
@@ -8,8 +13,10 @@ from async_lru import alru_cache
 from .base import FetchResult, SourceNotFound
 from .http_source import HttpSource
 from ..obs_parser import parse_obs_changes
+from ..rpm_manager import RPMManager
 
 _CHANGELOG_SPLIT = re.compile(r"^%changelog\s*$", re.MULTILINE | re.IGNORECASE)
+_RPM_HEADER = re.compile(r"^\* [A-Z][a-z]{2} [A-Z][a-z]{2}")
 
 
 def extract_changelog_section(spec_text: str) -> str | None:
@@ -20,8 +27,15 @@ def extract_changelog_section(spec_text: str) -> str | None:
     return parts[1].strip()
 
 
+def _parse_changelog(text: str, package: str) -> list:
+    """Parse changelog text, auto-detecting RPM vs OBS format."""
+    if _RPM_HEADER.search(text):
+        return RPMManager.parse_changelog(text, package=package)
+    return parse_obs_changes(text, package=package, source="fedora")
+
+
 class FedoraSource(HttpSource):
-    """Fetches the .spec file from Fedora Pagure and parses its %changelog."""
+    """Fetches changelogs from Fedora Pagure dist-git."""
 
     name = "fedora"
     distro = "fedora"
@@ -34,16 +48,25 @@ class FedoraSource(HttpSource):
 
         import json
         meta = json.loads(meta_text)
-        branch = meta.get("default_branch", "main")
+        branch = meta.get("default_branch", "rawhide")
 
+        # rpmautospec: try standalone changelog file first
+        changelog_url = f"{self._API_BASE}/rpms/{package}/raw/{branch}/f/changelog"
+        try:
+            changelog_text = await self._fetch_text(changelog_url)
+            entries = _parse_changelog(changelog_text, package)
+            if entries:
+                return FetchResult(entries=entries, source_name=self.name, distro="fedora")
+        except SourceNotFound:
+            pass
+
+        # Fallback: extract %changelog from spec
         spec_url = f"{self._API_BASE}/rpms/{package}/raw/{branch}/f/{package}.spec"
         spec_text = await self._fetch_text(spec_url)
 
         changelog_text = extract_changelog_section(spec_text)
         if not changelog_text:
-            raise SourceNotFound(f"no %changelog in {package}.spec")
+            raise SourceNotFound(f"no changelog for {package} in Fedora dist-git")
 
-        entries = parse_obs_changes(
-            changelog_text, package=package, source=self.name,
-        )
+        entries = _parse_changelog(changelog_text, package)
         return FetchResult(entries=entries, source_name=self.name, distro="fedora")
