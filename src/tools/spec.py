@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from src import embedder
-from src.config import settings
-from src.ingest import validate_package_name
-from src.runtime import db
-from src.sources.spec_sources import SPEC_SOURCES
-from src.spec_parser import chunk_sections, extract_sections
-from src.tools._helpers import MSG_UNKNOWN_SPEC_SOURCE
-from src.tools._wrap import _tlog, _tool_wrapper
+from .. import embedder
+from ..config import settings
+from ..ingest import validate_package_name
+from ..runtime import db
+from ..sources.spec_sources import SPEC_SOURCES
+from ..spec_parser import chunk_sections, extract_sections
+from ._helpers import MSG_UNKNOWN_SPEC_SOURCE
+from ._wrap import _tlog, _tool_wrapper
 
 
 async def _ensure_spec(package: str, source: str = "opensuse") -> tuple[int, int, str, str] | None:

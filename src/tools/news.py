@@ -6,10 +6,10 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from src.ingest import validate_package_name
-from src.runtime import db
-from src.tools._helpers import _format_date
-from src.tools._wrap import _tlog, _tool_wrapper
+from ..ingest import validate_package_name
+from ..runtime import db
+from ._helpers import _format_date
+from ._wrap import _tlog, _tool_wrapper
 
 
 @_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"))

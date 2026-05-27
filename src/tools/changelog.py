@@ -10,11 +10,13 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 
 from packaging import version as pkg_version
-from src import embedder
-from src.ingest import IngestStatus, validate_package_name
-from src.models import ChangelogEntry
-from src.runtime import db, git_mgr, ingest_service
-from src.tools._helpers import (
+
+from .. import embedder
+from ..ingest import IngestStatus, validate_package_name
+from ..models import ChangelogEntry
+from ..runtime import db, git_mgr, ingest_service
+from ..version_utils import clean_version, content_matches, parse_when
+from ._helpers import (
     BSC_CONTENT_RE,
     CVE_CONTENT_RE,
     MSG_PKG_NOT_FOUND,
@@ -33,8 +35,7 @@ from src.tools._helpers import (
     parse_when_or_msg,
     queued_msg_or_none,
 )
-from src.tools._wrap import _tlog, _tool_wrapper
-from src.version_utils import clean_version, content_matches, parse_when
+from ._wrap import _tlog, _tool_wrapper
 
 
 # ---------------------------------------------------------------------------

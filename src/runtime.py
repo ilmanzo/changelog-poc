@@ -12,12 +12,12 @@ from contextlib import asynccontextmanager
 
 import structlog
 
-from src.config import settings
-from src.db import Database
-from src.git_manager import GitManager
-from src.ingest import IngestService
-from src.rpm_manager import RPMManager
-from src.sources import (
+from .config import settings
+from .db import Database
+from .git_manager import GitManager
+from .ingest import IngestService
+from .rpm_manager import RPMManager
+from .sources import (
     FedoraSource,
     FetchStrategy,
     GiteaSource,
@@ -26,7 +26,7 @@ from src.sources import (
     SourceRegistry,
     UbuntuSource,
 )
-from src.test_repo_manager import TestRepoManager
+from .test_repo_manager import TestRepoManager
 
 _logger = structlog.get_logger("rpm-mcp.server")
 

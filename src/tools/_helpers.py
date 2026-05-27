@@ -13,12 +13,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from src.config import settings
-from src.ingest import IngestStatus
-from src.models import ChangelogEntry
-from src.runtime import db, ingest_service
-from src.tools._wrap import _mark_stale
-from src.version_utils import BSC_RE, CVE_RE, parse_when
+from ..config import settings
+from ..ingest import IngestStatus
+from ..models import ChangelogEntry
+from ..runtime import db, ingest_service
+from ..version_utils import BSC_RE, CVE_RE, parse_when
+from ._wrap import _mark_stale
 
 # ---------------------------------------------------------------------------
 # User-facing message templates

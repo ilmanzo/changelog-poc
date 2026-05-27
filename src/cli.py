@@ -12,9 +12,9 @@ from typing import Any
 
 import structlog
 
-from src.runtime import db, source_registry
-from src.tools import ALL_CLI_TOOLS
-from src.tools._wrap import suppress_untrusted_envelope
+from .runtime import db, source_registry
+from .tools import ALL_CLI_TOOLS
+from .tools._wrap import suppress_untrusted_envelope
 
 _logger = structlog.get_logger("rpm-mcp.cli")
 _ParamType = type[str] | type[int] | type[float] | type[bool]

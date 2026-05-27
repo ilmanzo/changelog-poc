@@ -6,12 +6,12 @@ import asyncio
 
 from mcp.server.fastmcp import FastMCP
 
-from src.config import settings
-from src.ingest import validate_package_name
-from src.runtime import rpm_mgr
-from src.tools._helpers import _format_date, _Readiness
-from src.tools._wrap import _tlog, _tool_wrapper
-from src.tools.changelog import _fetch_recent_releases
+from ..config import settings
+from ..ingest import validate_package_name
+from ..runtime import rpm_mgr
+from ._helpers import _format_date, _Readiness
+from ._wrap import _tlog, _tool_wrapper
+from .changelog import _fetch_recent_releases
 
 
 @_tool_wrapper("get_dependencies")
