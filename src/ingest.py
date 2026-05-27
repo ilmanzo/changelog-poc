@@ -268,12 +268,15 @@ class IngestService:
         """Try OBS spec header and _service file to find a forge URL."""
         import aiohttp as _aiohttp
 
-        from .spec_url_extractor import extract_upstream_urls
+        from .http_utils import make_client_session
         from .service_file_parser import extract_urls_from_service
+        from .spec_url_extractor import extract_upstream_urls
 
+        # Only openSUSE OBS exposes spec + _service; for distro=fedora this
+        # call returns no URL and the upstream-enrichment path is a no-op.
         base = "https://api.opensuse.org/public/source/openSUSE:Factory"
 
-        async with _aiohttp.ClientSession() as session:
+        async with make_client_session() as session:
             for suffix, parser in (
                 (f"/{package}/{package}.spec", extract_upstream_urls),
                 (f"/{package}/_service", extract_urls_from_service),

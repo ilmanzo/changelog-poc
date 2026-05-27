@@ -1,4 +1,4 @@
-"""Unit tests for src/sources/github_source.py — mock HTTP, no network."""
+"""Unit tests for src/sources/github_source.py -- mock HTTP, no network."""
 from __future__ import annotations
 
 import json
@@ -43,15 +43,15 @@ def test_parse_github_repo_none(url: str) -> None:
 
 
 def test_invalid_url_raises() -> None:
-    with pytest.raises(ValueError, match="not a GitHub repo URL"):
+    with pytest.raises(ValueError, match="not a github_release repo URL"):
         GitHubSource("https://gitlab.com/a/b")
 
 
 # ---------------------------------------------------------------------------
-# GitHubSource.fetch (mocked aiohttp)
+# GitHubSource.fetch (mocked HTTP)
 # ---------------------------------------------------------------------------
 
-RELEASES_JSON = [
+RELEASES_JSON: list[dict[str, object]] = [
     {
         "tag_name": "v9.1.0",
         "body": "## What's new\n- Fix CVE-2024-1234",
@@ -76,29 +76,25 @@ RELEASES_JSON = [
 ]
 
 
-def _mock_response(status: int, payload: object = None):
-    resp = AsyncMock()
+def _resp_ctx(status: int, payload: object | None = None) -> MagicMock:
+    resp = MagicMock()
     resp.status = status
-    resp.json = AsyncMock(return_value=payload)
-    resp.__aenter__ = AsyncMock(return_value=resp)
-    resp.__aexit__ = AsyncMock(return_value=None)
-    return resp
+    resp.text = AsyncMock(return_value=json.dumps(payload) if payload is not None else "")
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=resp)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
 
 
-def _mock_session(response):
-    session = AsyncMock()
-    session.get = MagicMock(return_value=response)
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
+def _mock_session(status: int, payload: object | None = None) -> MagicMock:
+    session = MagicMock()
+    session.get = MagicMock(return_value=_resp_ctx(status, payload))
     return session
 
 
 async def test_fetch_parses_releases() -> None:
     source = GitHubSource("https://github.com/vim/vim")
-    resp = _mock_response(200, RELEASES_JSON)
-    session = _mock_session(resp)
-
-    with patch("src.sources.github_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(200, RELEASES_JSON))):
         result = await source.fetch("vim")
 
     assert result.source_name == "github_release"
@@ -111,10 +107,7 @@ async def test_fetch_parses_releases() -> None:
 
 async def test_fetch_skips_drafts() -> None:
     source = GitHubSource("https://github.com/vim/vim")
-    resp = _mock_response(200, RELEASES_JSON)
-    session = _mock_session(resp)
-
-    with patch("src.sources.github_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(200, RELEASES_JSON))):
         result = await source.fetch("vim")
 
     versions = [e.version for e in result.entries]
@@ -123,20 +116,16 @@ async def test_fetch_skips_drafts() -> None:
 
 async def test_fetch_404_raises_not_found() -> None:
     source = GitHubSource("https://github.com/vim/vim")
-    resp = _mock_response(404)
-    session = _mock_session(resp)
-
-    with patch("src.sources.github_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(404))):
         with pytest.raises(SourceNotFound):
             await source.fetch("vim")
 
 
-async def test_fetch_403_raises_source_error() -> None:
+async def test_fetch_403_raises_source_error(monkeypatch) -> None:
+    # Ensure no retries inflate the test runtime.
+    monkeypatch.setattr("src.sources.http_source.settings.obs_max_retries", 1)
     source = GitHubSource("https://github.com/vim/vim")
-    resp = _mock_response(403)
-    session = _mock_session(resp)
-
-    with patch("src.sources.github_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(403))):
         with pytest.raises(SourceError, match="rate limit"):
             await source.fetch("vim")
 
@@ -152,10 +141,24 @@ async def test_fetch_strips_v_prefix() -> None:
         },
     ]
     source = GitHubSource("https://github.com/a/b")
-    resp = _mock_response(200, releases)
-    session = _mock_session(resp)
-
-    with patch("src.sources.github_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(200, releases))):
         result = await source.fetch("b")
 
     assert result.entries[0].version == "2.0"
+
+
+def test_strips_only_one_v_prefix() -> None:
+    # Regression: tag.lstrip("vV") would strip ALL leading v's;
+    # removeprefix variant must strip at most one.
+    releases = [
+        {
+            "tag_name": "vvv1.0",
+            "body": "x",
+            "published_at": "2024-01-01T00:00:00Z",
+            "draft": False,
+            "author": {"login": "d"},
+        },
+    ]
+    source = GitHubSource("https://github.com/a/b")
+    entry = source._build_entry(releases[0], "b")
+    assert entry.version == "vv1.0"

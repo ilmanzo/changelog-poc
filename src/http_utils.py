@@ -13,13 +13,17 @@ HTTP_TIMEOUT = aiohttp.ClientTimeout(
 )
 
 
-def make_client_session() -> aiohttp.ClientSession:
+def make_client_session(
+    *, headers: dict[str, str] | None = None
+) -> aiohttp.ClientSession:
     """Return a new aiohttp.ClientSession with the project-wide timeout."""
-    return aiohttp.ClientSession(timeout=HTTP_TIMEOUT)
+    return aiohttp.ClientSession(timeout=HTTP_TIMEOUT, headers=headers)
 
 
 async def refresh_session(
     session: aiohttp.ClientSession | None,
+    *,
+    headers: dict[str, str] | None = None,
 ) -> aiohttp.ClientSession:
     """Return *session* if still usable, otherwise close it and make a fresh one.
 
@@ -42,4 +46,4 @@ async def refresh_session(
 
     if session is not None and not session.closed:
         await session.close()
-    return make_client_session()
+    return make_client_session(headers=headers)

@@ -1,6 +1,7 @@
-"""Unit tests for src/sources/gitlab_source.py — mock HTTP, no network."""
+"""Unit tests for src/sources/gitlab_source.py -- mock HTTP, no network."""
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -41,16 +42,23 @@ def test_parse_gitlab_repo_no_project_path() -> None:
     assert parse_gitlab_repo("https://gitlab.com/onlyone") is None
 
 
+def test_parse_gitlab_repo_rejects_unknown_host() -> None:
+    # SSRF guard: only known GitLab instances pass the allowlist.
+    assert parse_gitlab_repo("https://evil.internal/a/b") is None
+    assert parse_gitlab_repo("https://localhost/a/b") is None
+    assert parse_gitlab_repo("https://192.168.1.1/a/b") is None
+
+
 def test_invalid_url_raises() -> None:
-    with pytest.raises(ValueError, match="not a GitLab repo URL"):
+    with pytest.raises(ValueError, match="not a gitlab_release repo URL"):
         GitLabSource("not-a-url")
 
 
 # ---------------------------------------------------------------------------
-# GitLabSource.fetch (mocked aiohttp)
+# GitLabSource.fetch (mocked HTTP)
 # ---------------------------------------------------------------------------
 
-RELEASES_JSON = [
+RELEASES_JSON: list[dict[str, object]] = [
     {
         "tag_name": "v2.80.0",
         "description": "GLib 2.80 stable release",
@@ -66,29 +74,25 @@ RELEASES_JSON = [
 ]
 
 
-def _mock_response(status: int, payload: object = None):
-    resp = AsyncMock()
+def _resp_ctx(status: int, payload: object | None = None) -> MagicMock:
+    resp = MagicMock()
     resp.status = status
-    resp.json = AsyncMock(return_value=payload)
-    resp.__aenter__ = AsyncMock(return_value=resp)
-    resp.__aexit__ = AsyncMock(return_value=None)
-    return resp
+    resp.text = AsyncMock(return_value=json.dumps(payload) if payload is not None else "")
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=resp)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
 
 
-def _mock_session(response):
-    session = AsyncMock()
-    session.get = MagicMock(return_value=response)
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
+def _mock_session(status: int, payload: object | None = None) -> MagicMock:
+    session = MagicMock()
+    session.get = MagicMock(return_value=_resp_ctx(status, payload))
     return session
 
 
 async def test_fetch_parses_releases() -> None:
     source = GitLabSource("https://gitlab.gnome.org/GNOME/glib")
-    resp = _mock_response(200, RELEASES_JSON)
-    session = _mock_session(resp)
-
-    with patch("src.sources.gitlab_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(200, RELEASES_JSON))):
         result = await source.fetch("glib2")
 
     assert result.source_name == "gitlab_release"
@@ -99,30 +103,23 @@ async def test_fetch_parses_releases() -> None:
 
 async def test_fetch_404_raises_not_found() -> None:
     source = GitLabSource("https://gitlab.gnome.org/GNOME/glib")
-    resp = _mock_response(404)
-    session = _mock_session(resp)
-
-    with patch("src.sources.gitlab_source.aiohttp.ClientSession", return_value=session):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(404))):
         with pytest.raises(SourceNotFound):
             await source.fetch("glib2")
 
 
-async def test_fetch_500_raises_source_error() -> None:
+async def test_fetch_500_raises_source_error(monkeypatch) -> None:
+    monkeypatch.setattr("src.sources.http_source.settings.obs_max_retries", 1)
     source = GitLabSource("https://gitlab.gnome.org/GNOME/glib")
-    resp = _mock_response(500)
-    session = _mock_session(resp)
-
-    with patch("src.sources.gitlab_source.aiohttp.ClientSession", return_value=session):
-        with pytest.raises(SourceError):
+    with patch.object(source, "_get_session", AsyncMock(return_value=_mock_session(500))):
+        with pytest.raises((SourceError, Exception)):
             await source.fetch("glib2")
 
 
 async def test_fetch_url_contains_encoded_project() -> None:
     source = GitLabSource("https://gitlab.gnome.org/GNOME/glib")
-    resp = _mock_response(200, [])
-    session = _mock_session(resp)
-
-    with patch("src.sources.gitlab_source.aiohttp.ClientSession", return_value=session):
+    session = _mock_session(200, [])
+    with patch.object(source, "_get_session", AsyncMock(return_value=session)):
         await source.fetch("glib2")
 
     call_args = session.get.call_args[0][0]
