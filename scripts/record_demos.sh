@@ -65,21 +65,23 @@ for tape in "${TAPES[@]}"; do
 
     if $HAS_FFMPEG; then
         tmp="${gif%.gif}_dedup.gif"
+        # mpdecimate: drop near-duplicate frames (cuts the long pre-output pause).
+        # tpad: clone the final frame for 3s so the loop has a visible end-state.
         ffmpeg -loglevel error -i "$gif" \
-            -filter_complex "[0:v]mpdecimate,setpts=N/FRAME_RATE/TB,split=2[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer" \
+            -filter_complex "[0:v]mpdecimate,setpts=N/FRAME_RATE/TB,tpad=stop_mode=clone:stop_duration=3,split=2[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer" \
             -y "$tmp" \
             && mv "$tmp" "$gif"
-        echo "    removed static frames"
+        echo "    removed static frames + 3s end-frame hold"
     fi
 
     if $HAS_GIFSICLE; then
         orig_size=$(stat -c%s "$gif")
-        gifsicle --batch --optimize=3 \
-            --lossy=80 \
-            "$gif" -d3000 "#-1"
+        # No frame selector here -- in --batch mode, a trailing "#-1" filters
+        # the output to that single frame instead of scoping the preceding option.
+        gifsicle --batch --optimize=3 --lossy=80 "$gif"
         new_size=$(stat -c%s "$gif")
         saved=$(( (orig_size - new_size) * 100 / orig_size ))
-        echo "    optimized: ${saved}% smaller (30s pause on last frame)"
+        echo "    optimized: ${saved}% smaller"
     fi
 
     echo "    -> ${gif}"
