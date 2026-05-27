@@ -56,7 +56,7 @@ async def test_obs_fetch_404_returns_none() -> None:
 async def test_obs_fetch_empty_body_returns_none() -> None:
     mock = _mock_client((200, ""))
     with patch("src.sources.spec_sources._client", return_value=mock):
-        text, url = await ObsSpecSource().fetch_spec("emptypkg")
+        text, _url = await ObsSpecSource().fetch_spec("emptypkg")
     assert text is None
 
 
@@ -96,7 +96,7 @@ async def test_pagure_spec_file_404_returns_none() -> None:
     meta = {"default_branch": "main"}
     mock = _mock_client((200, meta), (404, ""))
     with patch("src.sources.spec_sources._client", return_value=mock):
-        text, url = await PagureSpecSource().fetch_spec("missing_spec")
+        text, _url = await PagureSpecSource().fetch_spec("missing_spec")
     assert text is None
 
 

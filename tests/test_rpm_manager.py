@@ -5,6 +5,7 @@ get_dependencies() / get_reverse_dependencies() patch self._exec.
 """
 from __future__ import annotations
 
+from itertools import pairwise
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -87,7 +88,7 @@ def test_parse_changelog_no_valid_headers_returns_empty() -> None:
 
 def test_parse_changelog_entries_ordered_newest_first() -> None:
     entries = RPMManager.parse_changelog(SAMPLE_CHANGELOG)
-    for a, b in zip(entries, entries[1:]):
+    for a, b in pairwise(entries):
         assert a.date >= b.date
 
 

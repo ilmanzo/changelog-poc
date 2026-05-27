@@ -1,7 +1,7 @@
 """Unit tests for src/spec_parser.py — pure text parsing, no mocking needed."""
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import pytest
 
@@ -167,10 +167,10 @@ def test_extract_sections_uses_isolated_tmpdir(monkeypatch: pytest.MonkeyPatch) 
 
     assert len(seen_sourcedirs) == 1
     sd = seen_sourcedirs[0]
-    assert os.path.basename(sd).startswith("rpm-mcp-spec-")
+    assert Path(sd).name.startswith("rpm-mcp-spec-")
     assert sd != "/tmp"
     # Directory must be cleaned up after the context manager exits
-    assert not os.path.exists(sd)
+    assert not Path(sd).exists()
 
 
 def test_extract_sections_uses_fresh_tmpdir_each_call(monkeypatch: pytest.MonkeyPatch) -> None:

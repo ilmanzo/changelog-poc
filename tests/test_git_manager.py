@@ -48,7 +48,7 @@ def test_safe_repo_path_valid(tmp_path: Path) -> None:
     ids=["dotdot", "deep", "dot", "slash", "semicolon", "space"],
 )
 def test_safe_repo_path_traversal_raises(name: str, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="traversal|Path|Invalid package"):
+    with pytest.raises(ValueError, match=r"traversal|Path|Invalid package"):
         _gm(tmp_path)._safe_repo_path(name)
 
 
