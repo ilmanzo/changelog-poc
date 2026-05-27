@@ -16,7 +16,7 @@ from src.db import Database
 from src.git_manager import GitManager
 from src.ingest import IngestService
 from src.rpm_manager import RPMManager
-from src.sources import FetchStrategy, GiteaSource, ObsSource, RpmSource, SourceRegistry
+from src.sources import FedoraSource, FetchStrategy, GiteaSource, ObsSource, RpmSource, SourceRegistry
 
 _logger = structlog.get_logger("rpm-mcp.server")
 
@@ -24,7 +24,7 @@ db = Database()
 rpm_mgr = RPMManager()
 git_mgr = GitManager()
 source_registry = SourceRegistry(
-    sources=[RpmSource(rpm_mgr), ObsSource(), GiteaSource()],
+    sources=[RpmSource(rpm_mgr), ObsSource(), GiteaSource(), FedoraSource()],
     strategy=FetchStrategy(settings.fetch_strategy),
 )
 ingest_service = IngestService(source_registry, db)
