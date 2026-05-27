@@ -112,7 +112,7 @@ class SourceRegistry:
             if isinstance(outcome, SourceNotFound):
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")
-            elif isinstance(outcome, (SourceError, Exception)):
+            elif isinstance(outcome, Exception):
                 any_error = True
                 logger.warning("source_error",
                                package=package, source=source.name, error=str(outcome))
@@ -122,6 +122,10 @@ class SourceRegistry:
         if not valid:
             return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
+        # Pick the source that returned the most entries: in practice OBS/Gitea
+        # mirrors lag and truncate, so "most rows" is a reasonable proxy for
+        # "freshest". Content-addressed UUIDs make later merging idempotent if
+        # we ever want to union instead.
         best = max(valid, key=lambda r: len(r.entries))
         logger.info("source_hit",
                     package=package, source=best.source_name,
