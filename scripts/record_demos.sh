@@ -49,14 +49,32 @@ fi
 
 [[ ${#TAPES[@]} -gt 0 ]] || die "no .tape files found in $TAPE_DIR"
 
+HAS_GIFSICLE=false
+command -v gifsicle >/dev/null 2>&1 && HAS_GIFSICLE=true
+
 # --- record ---
 for tape in "${TAPES[@]}"; do
     base="$(basename "${tape%.tape}")"
+    gif="${TAPE_DIR}/${base}.gif"
     echo ""
     echo "=== Recording ${base} ==="
     vhs "$tape"
-    echo "    -> ${TAPE_DIR}/${base}.gif"
+
+    if $HAS_GIFSICLE; then
+        orig_size=$(stat -c%s "$gif")
+        gifsicle --batch --optimize=3 \
+            --lossy=80 \
+            "$gif"
+        new_size=$(stat -c%s "$gif")
+        saved=$(( (orig_size - new_size) * 100 / orig_size ))
+        echo "    optimized: ${saved}% smaller"
+    fi
+
+    echo "    -> ${gif}"
 done
 
 echo ""
 echo "Done. Recorded ${#TAPES[@]} demo(s)."
+if ! $HAS_GIFSICLE; then
+    echo "Tip: install gifsicle for automatic GIF optimization (zypper in gifsicle)"
+fi
