@@ -34,12 +34,22 @@ async def _get_model() -> TextEmbedding:
         return _model
 
 
+def _embed_sync(model: TextEmbedding, texts: list[str], batch_size: int | None = None) -> list[list[float]]:
+    # fastembed.embed is a lazy generator backed by sync ONNX inference;
+    # materialise here so the CPU work runs entirely off the event loop.
+    if batch_size is None:
+        vecs = model.embed(texts)
+    else:
+        vecs = model.embed(texts, batch_size=batch_size)
+    return [v.tolist() for v in vecs]
+
+
 async def embed_one(text: str) -> list[float]:
     """Embed a single string. Returns an empty list on failure."""
     try:
         model = await _get_model()
-        vecs = list(model.embed([text]))
-        return vecs[0].tolist() if vecs else []
+        vecs = await asyncio.to_thread(_embed_sync, model, [text])
+        return vecs[0] if vecs else []
     except Exception as e:
         _logger.error("embed_one_failed", error=str(e))
         return []
@@ -52,7 +62,7 @@ async def embed_batch(texts: Iterable[str]) -> list[list[float]]:
         return []
     try:
         model = await _get_model()
-        return [v.tolist() for v in model.embed(texts, batch_size=settings.embedding_batch_size)]
+        return await asyncio.to_thread(_embed_sync, model, texts, settings.embedding_batch_size)
     except Exception as e:
         _logger.error("embed_batch_failed", error=str(e), count=len(texts))
         return []
