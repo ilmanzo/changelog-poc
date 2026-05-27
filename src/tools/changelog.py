@@ -281,16 +281,57 @@ async def fts_search(query: str, limit: int = 10, since: str | None = None) -> s
     return "\n".join(lines)
 
 
+@_tool_wrapper("compare_versions")
+async def compare_versions(package: str, refresh: bool = False) -> str:
+    """Compare latest changelog versions of *package* across distros (openSUSE, Fedora, Ubuntu).
+
+    If ``refresh=True``, re-ingests from all distros before comparing.
+    """
+    validate_package_name(package)
+    if refresh:
+        await ingest_service.ingest_all_distros(package)
+    rows = await db.compare_versions(package)
+    _tlog(distros=len(rows))
+    if not rows:
+        return f"No changelog data for '{package}' in any distro. Try sync_package first."
+    lines = [f"Version comparison for {package}:"]
+    for r in rows:
+        lines.append(
+            f"  {r['distro']:12s}  {r['version']:30s}  ({_format_date(r['entry_date'])})"
+        )
+    return "\n".join(lines)
+
+
 @_tool_wrapper("sync_package")
-async def sync_package(package: str) -> str:
-    """Force-ingest *package* -- fetch + embed + upsert. Thin wrapper over IngestService."""
-    result = await ingest_service.ingest(package)
-    _tlog(status=result.status.value, entries=result.entries)
+async def sync_package(package: str, distro: str = "opensuse") -> str:
+    """Force-ingest *package* from a single *distro* -- fetch + embed + upsert.
+
+    Use ``compare_versions`` afterwards to see cross-distro differences.
+    """
+    result = await ingest_service.ingest(package, distro)
+    _tlog(status=result.status.value, entries=result.entries, distro=distro)
     if result.status is IngestStatus.INDEXED:
-        return f"Successfully indexed {result.entries} entries for {package} (source: {result.source})."
+        return f"Indexed {result.entries} entries for {package} [{distro}] (source: {result.source})."
     if result.status is IngestStatus.EMPTY:
-        return f"No changelog found for {package} in any source."
-    return f"Sync failed for {package}: {result.error}"
+        return f"No changelog found for {package} [{distro}]."
+    return f"Sync failed for {package} [{distro}]: {result.error}"
+
+
+@_tool_wrapper("sync_all_distros")
+async def sync_all_distros(package: str) -> str:
+    """Ingest *package* from every known distro (openSUSE, Fedora, Ubuntu) in parallel."""
+    validate_package_name(package)
+    results = await ingest_service.ingest_all_distros(package)
+    lines = [f"Cross-distro sync for {package}:"]
+    for r in results:
+        tag = f"[{r.source or '?'}]"
+        if r.status is IngestStatus.INDEXED:
+            lines.append(f"  {tag:20s} {r.entries} entries indexed")
+        elif r.status is IngestStatus.EMPTY:
+            lines.append(f"  {tag:20s} not found")
+        else:
+            lines.append(f"  {tag:20s} {r.status.value}: {r.error}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -392,7 +433,9 @@ CLI_TOOLS = (
     list_bugs,
     semantic_search,
     fts_search,
+    compare_versions,
     sync_package,
+    sync_all_distros,
 )
 
 

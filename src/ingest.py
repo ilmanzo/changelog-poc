@@ -83,6 +83,13 @@ class IngestService:
         """
         return self._get_or_start(package, distro)
 
+    async def ingest_all_distros(self, package: str) -> list[IngestResult]:
+        """Ingest *package* from every registered distro in parallel."""
+        distros = self._sources.known_distros
+        return list(
+            await asyncio.gather(*(self.ingest(package, d) for d in distros))
+        )
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -128,7 +135,7 @@ class IngestService:
                 elapsed_s=round(time.perf_counter() - t0, 3),
             )
 
-        result = await self._sources.fetch(package)
+        result = await self._sources.fetch(package, distro=distro)
         if result.is_empty:
             elapsed = round(time.perf_counter() - t0, 3)
             if result.fetch_failed:

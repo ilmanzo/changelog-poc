@@ -37,7 +37,7 @@ async def test_concurrent_ingest_calls_coalesce_to_one_task() -> None:
     release_fetch = asyncio.Event()
     call_count = 0
 
-    async def slow_fetch(_pkg: str) -> FetchResult:
+    async def slow_fetch(_pkg: str, **_kw: object) -> FetchResult:
         nonlocal call_count
         call_count += 1
         fetch_started.set()
@@ -83,7 +83,7 @@ async def test_schedule_joins_existing_inflight_task() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def slow(_pkg: str) -> FetchResult:
+    async def slow(_pkg: str, **_kw: object) -> FetchResult:
         started.set()
         await release.wait()
         return _RESULT

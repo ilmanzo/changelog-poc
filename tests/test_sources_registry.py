@@ -25,10 +25,13 @@ _RESULT = FetchResult(entries=[_ENTRY], source_name="mock-source")
 _EMPTY = FetchResult(entries=[], source_name="mock-source")
 
 
-def _make_source(name: str, is_local: bool = False) -> ChangelogSource:
+def _make_source(
+    name: str, is_local: bool = False, distro: str = "opensuse",
+) -> ChangelogSource:
     """Build a minimal ChangelogSource mock."""
     src = AsyncMock(spec=ChangelogSource)
     src.name = name
+    src.distro = distro
     src.is_local = is_local
     src.close = AsyncMock(return_value=None)
     return src
@@ -174,3 +177,54 @@ async def test_close_calls_all_sources() -> None:
     await reg.close()
     s1.close.assert_awaited_once()
     s2.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Distro filtering
+# ---------------------------------------------------------------------------
+async def test_known_distros() -> None:
+    s1 = _make_source("obs", distro="opensuse")
+    s2 = _make_source("fedora", distro="fedora")
+    s3 = _make_source("ubuntu", distro="ubuntu")
+    reg = SourceRegistry([s1, s2, s3])
+    assert reg.known_distros == ["opensuse", "fedora", "ubuntu"]
+
+
+async def test_waterfall_distro_filter_skips_other_distros() -> None:
+    suse = _make_source("obs", distro="opensuse")
+    fedora = _make_source("fedora", distro="fedora")
+    suse.fetch = AsyncMock(return_value=_RESULT)
+    fedora.fetch = AsyncMock(
+        return_value=FetchResult(entries=[_ENTRY], source_name="fedora", distro="fedora"),
+    )
+
+    reg = SourceRegistry([suse, fedora], FetchStrategy.WATERFALL)
+    result = await reg.fetch("vim", distro="fedora")
+
+    assert result.source_name == "fedora"
+    suse.fetch.assert_not_awaited()
+    fedora.fetch.assert_awaited_once()
+
+
+async def test_distro_filter_no_match_returns_empty() -> None:
+    suse = _make_source("obs", distro="opensuse")
+    suse.fetch = AsyncMock(return_value=_RESULT)
+
+    reg = SourceRegistry([suse], FetchStrategy.WATERFALL)
+    result = await reg.fetch("vim", distro="fedora")
+
+    assert result.is_empty
+    suse.fetch.assert_not_awaited()
+
+
+async def test_distro_none_uses_all_sources() -> None:
+    suse = _make_source("obs", distro="opensuse")
+    fedora = _make_source("fedora", distro="fedora")
+    suse.fetch = AsyncMock(return_value=_RESULT)
+    fedora.fetch = AsyncMock(return_value=_RESULT)
+
+    reg = SourceRegistry([suse, fedora], FetchStrategy.WATERFALL)
+    result = await reg.fetch("vim", distro=None)
+
+    assert not result.is_empty
+    suse.fetch.assert_awaited_once()

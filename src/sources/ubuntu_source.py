@@ -22,6 +22,7 @@ class UbuntuSource(HttpSource):
     """
 
     name = "ubuntu"
+    distro = "ubuntu"
     _BASE_URL = "https://changelogs.ubuntu.com/changelogs/binary"
 
     @alru_cache(maxsize=128)

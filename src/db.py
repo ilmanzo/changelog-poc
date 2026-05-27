@@ -495,6 +495,27 @@ class Database:
                 days, limit,
             )
 
+    async def compare_versions(self, package: str) -> list[asyncpg.Record]:
+        """Latest changelog version per distro for *package*."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                """
+                SELECT p.distro,
+                       ce.version,
+                       ce.entry_date
+                FROM packages p
+                JOIN changelog_entries ce ON ce.package_id = p.id
+                WHERE p.name = $1
+                  AND ce.entry_date = (
+                      SELECT MAX(ce2.entry_date)
+                      FROM changelog_entries ce2
+                      WHERE ce2.package_id = p.id
+                  )
+                ORDER BY p.distro
+                """,
+                package,
+            )
+
     # ------------------------------------------------------------------
     # deps
     # ------------------------------------------------------------------

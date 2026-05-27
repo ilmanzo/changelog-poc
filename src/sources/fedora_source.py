@@ -24,6 +24,7 @@ class FedoraSource(HttpSource):
     """Fetches the .spec file from Fedora Pagure and parses its %changelog."""
 
     name = "fedora"
+    distro = "fedora"
     _API_BASE = "https://src.fedoraproject.org"
 
     @alru_cache(maxsize=128)

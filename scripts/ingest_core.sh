@@ -10,6 +10,7 @@
 # Env overrides:
 #   THRESHOLD_DAYS   freshness window (default: 7)
 #   PARALLEL         concurrent ingest workers (default: 2)
+#   CROSS_DISTRO     set to 1 to ingest from all distros (openSUSE + Fedora + Ubuntu)
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")/.."
@@ -53,6 +54,10 @@ printf '  %s\n' "${STALE[@]}"
 
 echo ""
 echo "=== Ingesting (parallelism: $PARALLEL) ==="
-printf '%s\n' "${STALE[@]}" | xargs -P "$PARALLEL" -I{} ./rpm-mcp sync-package {}
+if [[ "${CROSS_DISTRO:-0}" == "1" ]]; then
+    printf '%s\n' "${STALE[@]}" | xargs -P "$PARALLEL" -I{} ./rpm-mcp sync-all-distros {}
+else
+    printf '%s\n' "${STALE[@]}" | xargs -P "$PARALLEL" -I{} ./rpm-mcp sync-package {}
+fi
 echo ""
 echo "Done."

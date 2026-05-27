@@ -38,6 +38,7 @@ class ChangelogSource(ABC):
     """Common interface every changelog data source must implement."""
 
     name: str = ""
+    distro: str = "opensuse"
     is_local: bool = False  # True → tried first in parallel strategy
 
     @abstractmethod

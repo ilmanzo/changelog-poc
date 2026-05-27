@@ -29,18 +29,35 @@ class SourceRegistry:
         self._local = [s for s in sources if s.is_local]
         self._network = [s for s in sources if not s.is_local]
 
-    async def fetch(self, package: str) -> FetchResult:
+    @property
+    def known_distros(self) -> list[str]:
+        seen: dict[str, None] = {}
+        for s in self._sources:
+            seen.setdefault(s.distro, None)
+        return list(seen)
+
+    def _filter(self, distro: str | None) -> list[ChangelogSource]:
+        if distro is None:
+            return self._sources
+        return [s for s in self._sources if s.distro == distro]
+
+    async def fetch(self, package: str, *, distro: str | None = None) -> FetchResult:
+        sources = self._filter(distro)
+        if not sources:
+            return FetchResult(entries=[], source_name="none")
         if self._strategy == FetchStrategy.PARALLEL:
-            return await self._fetch_parallel(package)
-        return await self._fetch_waterfall(package)
+            return await self._fetch_parallel(package, sources)
+        return await self._fetch_waterfall(package, sources)
 
     async def close(self) -> None:
         for source in self._sources:
             await source.close()
 
-    async def _fetch_waterfall(self, package: str) -> FetchResult:
+    async def _fetch_waterfall(
+        self, package: str, sources: list[ChangelogSource] | None = None,
+    ) -> FetchResult:
         any_error = False
-        for source in self._sources:
+        for source in (sources or self._sources):
             try:
                 result = await source.fetch(package)
                 if not result.is_empty:
@@ -59,9 +76,14 @@ class SourceRegistry:
 
         return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
-    async def _fetch_parallel(self, package: str) -> FetchResult:
+    async def _fetch_parallel(
+        self, package: str, sources: list[ChangelogSource] | None = None,
+    ) -> FetchResult:
+        all_sources = sources or self._sources
+        local = [s for s in all_sources if s.is_local]
+        network = [s for s in all_sources if not s.is_local]
         any_error = False
-        for source in self._local:
+        for source in local:
             try:
                 result = await source.fetch(package)
                 if not result.is_empty:
@@ -77,16 +99,16 @@ class SourceRegistry:
                 logger.warning("source_error",
                                package=package, source=source.name, error=str(exc))
 
-        if not self._network:
+        if not network:
             return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
         raw = await asyncio.gather(
-            *[s.fetch(package) for s in self._network],
+            *[s.fetch(package) for s in network],
             return_exceptions=True,
         )
 
         valid: list[FetchResult] = []
-        for source, outcome in zip(self._network, raw):
+        for source, outcome in zip(network, raw):
             if isinstance(outcome, SourceNotFound):
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")
