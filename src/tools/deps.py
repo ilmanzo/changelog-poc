@@ -156,7 +156,7 @@ async def _collect_transitive_deps(root: str, depth: int) -> list[str]:
         for pkg in frontier:
             try:
                 pkg_deps = await rpm_mgr.get_dependencies(pkg)
-            except Exception:
+            except RuntimeError:
                 continue
             for d in pkg_deps:
                 if d not in visited:

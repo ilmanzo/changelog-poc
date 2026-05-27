@@ -65,4 +65,8 @@ def chunk_text(text: str) -> list[str]:
     if len(text) <= size:
         return [text]
     step = size - overlap
-    return [text[i : i + size] for i in range(0, len(text), step)]
+    positions = list(range(0, len(text) - size + 1, step))
+    last_start = positions[-1] if positions else -1
+    if last_start + size < len(text):
+        positions.append(len(text) - size)
+    return [text[i : i + size] for i in positions]
