@@ -12,7 +12,6 @@ dependencies = [
     "defusedxml>=0.7.1",
     "fastembed>=0.8.0",
     "gitpython>=3.1.49",
-    "httpx>=0.28.1",
     "mcp[cli]>=1.27.1",
     "packaging>=26.2",
     "pgvector>=0.4.1",

@@ -1,9 +1,12 @@
-"""Unit tests for src/news_fetcher.py — mock httpx.AsyncClient."""
+"""Unit tests for src/news_fetcher.py — mock aiohttp via make_client_session."""
+
 from __future__ import annotations
 
 from datetime import UTC
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
 from src.news_fetcher import (
@@ -15,18 +18,31 @@ from src.news_fetcher import (
 )
 
 
-def _mock_client(status_code: int = 200, text: str = "", json_body: dict | None = None) -> MagicMock:
+def _resp_ctx(status: int = 200, text: str = "", json_body: Any = None) -> MagicMock:
+    """Build the async-context-manager mock returned by session.get(url)."""
     resp = MagicMock()
-    resp.status_code = status_code
-    resp.text = text
-    if json_body is not None:
-        resp.json.return_value = json_body
+    resp.status = status
+    resp.text = AsyncMock(return_value=text)
+    resp.json = AsyncMock(return_value=json_body if json_body is not None else {})
 
-    client = AsyncMock()
-    client.get = AsyncMock(return_value=resp)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
-    return client
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=resp)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
+
+
+def _session_ctx(get_return: MagicMock | None = None, get_side_effect: Exception | None = None) -> MagicMock:
+    """Mock the `async with make_client_session() as session` context."""
+    session = MagicMock()
+    if get_side_effect is not None:
+        session.get = MagicMock(side_effect=get_side_effect)
+    else:
+        session.get = MagicMock(return_value=get_return)
+
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=session)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +79,8 @@ async def test_fetch_bodhi_returns_news_items() -> None:
             {"title": "curl-8.0", "type": "security", "critpath": False, "notes": "CVE fix", "url": None},
         ]
     }
-    mock = _mock_client(200, json_body=body)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    ctx = _session_ctx(get_return=_resp_ctx(200, json_body=body))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_bodhi(limit=5)
     assert len(result) == 2
     assert result[0].source == "bodhi"
@@ -73,28 +89,23 @@ async def test_fetch_bodhi_returns_news_items() -> None:
 
 
 async def test_fetch_bodhi_skips_empty_title() -> None:
-    body = {"updates": [{"title": "", "type": "bugfix"}]}
-    mock = _mock_client(200, json_body=body)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    ctx = _session_ctx(get_return=_resp_ctx(200, json_body={"updates": [{"title": "", "type": "bugfix"}]}))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_bodhi()
     assert result == []
 
 
-def _bodhi_err_client(case: str) -> MagicMock:
-    import httpx
-    if case == "http_503":
-        return _mock_client(status_code=503)
-    if case == "network":
-        m = _mock_client()
-        m.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        return m
-    raise ValueError(case)
-
-
-@pytest.mark.parametrize("case", ["http_503", "network"], ids=["http_error", "network_error"])
+@pytest.mark.parametrize(
+    "case",
+    ["http_503", "network"],
+    ids=["http_error", "network_error"],
+)
 async def test_fetch_bodhi_error_returns_empty(case: str) -> None:
-    mock = _bodhi_err_client(case)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    if case == "http_503":
+        ctx = _session_ctx(get_return=_resp_ctx(503))
+    else:
+        ctx = _session_ctx(get_side_effect=aiohttp.ClientConnectionError("refused"))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_bodhi()
     assert result == []
 
@@ -120,37 +131,33 @@ _RSS = """\
 
 
 async def test_fetch_opensuse_news_returns_items() -> None:
-    mock = _mock_client(200, text=_RSS)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    ctx = _session_ctx(get_return=_resp_ctx(200, text=_RSS))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_opensuse_news(limit=10)
     assert len(result) == 2
     assert result[0].source == "opensuse-rss"
 
 
 async def test_fetch_opensuse_news_tumbleweed_critical() -> None:
-    mock = _mock_client(200, text=_RSS)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    ctx = _session_ctx(get_return=_resp_ctx(200, text=_RSS))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_opensuse_news()
     tumbleweed = next(r for r in result if "Tumbleweed" in r.title)
     assert tumbleweed.importance == "CRITICAL"
     assert tumbleweed.package_name == "Tumbleweed"
 
 
-def _suse_err_client(case: str) -> MagicMock:
-    import httpx
-    if case == "http_404":
-        return _mock_client(status_code=404)
-    if case == "network":
-        m = _mock_client()
-        m.get = AsyncMock(side_effect=httpx.ConnectError("refused"))
-        return m
-    raise ValueError(case)
-
-
-@pytest.mark.parametrize("case", ["http_404", "network"], ids=["http_error", "network_error"])
+@pytest.mark.parametrize(
+    "case",
+    ["http_404", "network"],
+    ids=["http_error", "network_error"],
+)
 async def test_fetch_opensuse_news_error_returns_empty(case: str) -> None:
-    mock = _suse_err_client(case)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    if case == "http_404":
+        ctx = _session_ctx(get_return=_resp_ctx(404))
+    else:
+        ctx = _session_ctx(get_side_effect=aiohttp.ClientConnectionError("refused"))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_opensuse_news()
     assert result == []
 
@@ -169,8 +176,8 @@ _XXE_RSS = """<?xml version="1.0"?>
 
 async def test_fetch_opensuse_news_rejects_xxe() -> None:
     """defusedxml must refuse to resolve external entities; result is empty."""
-    mock = _mock_client(200, text=_XXE_RSS)
-    with patch("src.news_fetcher.httpx.AsyncClient", return_value=mock):
+    ctx = _session_ctx(get_return=_resp_ctx(200, text=_XXE_RSS))
+    with patch("src.news_fetcher.make_client_session", return_value=ctx):
         result = await fetch_opensuse_news()
     assert result == []
 
@@ -184,7 +191,15 @@ async def test_fetch_all_news_concatenates_both_feeds() -> None:
     from src.models import NewsItem
 
     def _item(source: str) -> NewsItem:
-        return NewsItem(title="t", source=source, item_type="bugfix", importance="Routine", content=None, url=None, date=datetime.now(UTC))
+        return NewsItem(
+            title="t",
+            source=source,
+            item_type="bugfix",
+            importance="Routine",
+            content=None,
+            url=None,
+            date=datetime.now(UTC),
+        )
 
     with (
         patch("src.news_fetcher.fetch_bodhi", new=AsyncMock(return_value=[_item("bodhi")])),

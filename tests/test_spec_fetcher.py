@@ -1,6 +1,8 @@
-"""Unit tests for src/sources/spec_sources.py — mock httpx.AsyncClient via _client."""
+"""Unit tests for src/sources/spec_sources.py — mock aiohttp via make_client_session."""
+
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.sources.spec_sources import (
@@ -10,27 +12,30 @@ from src.sources.spec_sources import (
 )
 
 
-def _mock_client(*responses: tuple[int, str | dict]) -> MagicMock:
-    """Build a mock httpx.AsyncClient async context manager.
+def _resp_ctx(status: int, text: str = "", json_body: Any = None) -> MagicMock:
+    resp = MagicMock()
+    resp.status = status
+    resp.text = AsyncMock(return_value=text)
+    resp.json = AsyncMock(return_value=json_body if json_body is not None else {})
 
-    Each response is (status_code, body): body is str for .text, dict for .json().
-    """
-    resp_mocks = []
-    for status, body in responses:
-        resp = MagicMock()
-        resp.status_code = status
-        if isinstance(body, dict):
-            resp.text = ""
-            resp.json.return_value = body
-        else:
-            resp.text = body
-        resp_mocks.append(resp)
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=resp)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
 
-    client = AsyncMock()
-    client.get = AsyncMock(side_effect=resp_mocks)
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
-    return client
+
+def _session_ctx(*responses: MagicMock, get_side_effect: Exception | None = None) -> MagicMock:
+    """Mock `async with make_client_session() as session`. session.get returns each *responses* in order."""
+    session = MagicMock()
+    if get_side_effect is not None:
+        session.get = MagicMock(side_effect=get_side_effect)
+    else:
+        session.get = MagicMock(side_effect=list(responses))
+
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=session)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -38,34 +43,31 @@ def _mock_client(*responses: tuple[int, str | dict]) -> MagicMock:
 # ---------------------------------------------------------------------------
 async def test_obs_fetch_success() -> None:
     spec_text = "Name: vim\nVersion: 9.0\n"
-    mock = _mock_client((200, spec_text))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(200, text=spec_text))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, url = await ObsSpecSource().fetch_spec("vim")
     assert text == spec_text
     assert url is not None and "vim" in url
 
 
 async def test_obs_fetch_404_returns_none() -> None:
-    mock = _mock_client((404, ""))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(404))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, url = await ObsSpecSource().fetch_spec("nonexistent_pkg")
     assert text is None
     assert url is None
 
 
 async def test_obs_fetch_empty_body_returns_none() -> None:
-    mock = _mock_client((200, ""))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(200, text=""))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, _url = await ObsSpecSource().fetch_spec("emptypkg")
     assert text is None
 
 
 async def test_obs_fetch_exception_returns_none() -> None:
-    client = AsyncMock()
-    client.get = AsyncMock(side_effect=Exception("network error"))
-    client.__aenter__ = AsyncMock(return_value=client)
-    client.__aexit__ = AsyncMock(return_value=False)
-    with patch("src.sources.spec_sources._client", return_value=client):
+    ctx = _session_ctx(get_side_effect=Exception("network error"))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, url = await ObsSpecSource().fetch_spec("vim")
     assert text is None
     assert url is None
@@ -77,16 +79,16 @@ async def test_obs_fetch_exception_returns_none() -> None:
 async def test_pagure_fetch_success() -> None:
     meta = {"default_branch": "rawhide"}
     spec_text = "Name: vim\nVersion: 9.1\n"
-    mock = _mock_client((200, meta), (200, spec_text))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(200, json_body=meta), _resp_ctx(200, text=spec_text))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, url = await PagureSpecSource().fetch_spec("vim")
     assert text == spec_text
     assert url is not None
 
 
 async def test_pagure_meta_404_returns_none() -> None:
-    mock = _mock_client((404, ""))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(404))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, url = await PagureSpecSource().fetch_spec("nope")
     assert text is None
     assert url is None
@@ -94,8 +96,8 @@ async def test_pagure_meta_404_returns_none() -> None:
 
 async def test_pagure_spec_file_404_returns_none() -> None:
     meta = {"default_branch": "main"}
-    mock = _mock_client((200, meta), (404, ""))
-    with patch("src.sources.spec_sources._client", return_value=mock):
+    ctx = _session_ctx(_resp_ctx(200, json_body=meta), _resp_ctx(404))
+    with patch("src.sources.spec_sources.make_client_session", return_value=ctx):
         text, _url = await PagureSpecSource().fetch_spec("missing_spec")
     assert text is None
 
@@ -112,8 +114,10 @@ async def test_fetch_any_obs_wins() -> None:
     async def _none(self, pkg: str):  # type: ignore[no-untyped-def]
         return None, None
 
-    with patch.object(ObsSpecSource, "fetch_spec", _ok), \
-         patch.object(PagureSpecSource, "fetch_spec", _none):
+    with (
+        patch.object(ObsSpecSource, "fetch_spec", _ok),
+        patch.object(PagureSpecSource, "fetch_spec", _none),
+    ):
         text, _url, source = await fetch_any_spec("curl")
 
     assert text == spec_text
@@ -129,8 +133,10 @@ async def test_fetch_any_obs_fails_pagure_wins() -> None:
     async def _ok(self, pkg: str):  # type: ignore[no-untyped-def]
         return spec_text, f"https://pagure/{pkg}.spec"
 
-    with patch.object(ObsSpecSource, "fetch_spec", _none), \
-         patch.object(PagureSpecSource, "fetch_spec", _ok):
+    with (
+        patch.object(ObsSpecSource, "fetch_spec", _none),
+        patch.object(PagureSpecSource, "fetch_spec", _ok),
+    ):
         text, _url, source = await fetch_any_spec("curl")
 
     assert text == spec_text
@@ -141,8 +147,10 @@ async def test_fetch_any_both_fail_returns_none_triple() -> None:
     async def _none(self, pkg: str):  # type: ignore[no-untyped-def]
         return None, None
 
-    with patch.object(ObsSpecSource, "fetch_spec", _none), \
-         patch.object(PagureSpecSource, "fetch_spec", _none):
+    with (
+        patch.object(ObsSpecSource, "fetch_spec", _none),
+        patch.object(PagureSpecSource, "fetch_spec", _none),
+    ):
         text, url, source = await fetch_any_spec("ghost")
 
     assert text is None

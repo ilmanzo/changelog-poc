@@ -9,11 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import httpx
 import structlog
 from defusedxml import ElementTree as DefusedET
 
-from .config import settings
+from .http_utils import make_client_session
 from .models import NewsItem
 from .sanitize import scrub_external
 
@@ -21,8 +20,6 @@ _logger = structlog.get_logger("rpm-mcp.news")
 
 BODHI_URL = "https://bodhi.fedoraproject.org/updates"
 OPENSUSE_NEWS_URL = "https://news.opensuse.org/feed.xml"
-
-_TIMEOUT = httpx.Timeout(settings.obs_timeout_total, connect=settings.obs_timeout_connect)
 
 
 def _classify_bodhi(u: dict) -> str:
@@ -39,29 +36,29 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
     items: list[NewsItem] = []
     url = f"{BODHI_URL}/?rows_per_page={limit}&status=testing"
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                _logger.warning("bodhi_http", status=resp.status_code)
+        async with make_client_session() as session, session.get(url) as resp:
+            if resp.status != 200:
+                _logger.warning("bodhi_http", status=resp.status)
                 return items
-            for u in resp.json().get("updates", []):
-                raw_title = u.get("title") or ""
-                pkg = _pkg_from_title(raw_title) if raw_title else None
-                title = scrub_external(raw_title, source="bodhi", package=pkg)
-                if not title:
-                    continue
-                items.append(
-                    NewsItem(
-                        title=title,
-                        source="bodhi",
-                        item_type=u.get("type"),
-                        importance=_classify_bodhi(u),
-                        content=scrub_external(u.get("notes") or "", source="bodhi", package=pkg) or None,
-                        url=u.get("url"),
-                        date=datetime.now(UTC),
-                        package_name=pkg,
-                    )
+            data = await resp.json()
+        for u in data.get("updates", []):
+            raw_title = u.get("title") or ""
+            pkg = _pkg_from_title(raw_title) if raw_title else None
+            title = scrub_external(raw_title, source="bodhi", package=pkg)
+            if not title:
+                continue
+            items.append(
+                NewsItem(
+                    title=title,
+                    source="bodhi",
+                    item_type=u.get("type"),
+                    importance=_classify_bodhi(u),
+                    content=scrub_external(u.get("notes") or "", source="bodhi", package=pkg) or None,
+                    url=u.get("url"),
+                    date=datetime.now(UTC),
+                    package_name=pkg,
                 )
+            )
     except Exception as e:
         _logger.warning("bodhi_error", error=str(e))
     return items
@@ -83,37 +80,37 @@ def _child_text(item: object, tag: str) -> str | None:
 async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
     items: list[NewsItem] = []
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            resp = await client.get(OPENSUSE_NEWS_URL)
-            if resp.status_code != 200:
-                _logger.warning("opensuse_news_http", status=resp.status_code)
+        async with make_client_session() as session, session.get(OPENSUSE_NEWS_URL) as resp:
+            if resp.status != 200:
+                _logger.warning("opensuse_news_http", status=resp.status)
                 return items
-            root = DefusedET.fromstring(resp.text)
-            for entry in root.iter("item"):
-                if len(items) >= limit:
-                    break
-                title_raw = _child_text(entry, "title")
-                if not title_raw:
-                    continue
-                pkg = "Tumbleweed" if ("Tumbleweed" in title_raw or "Snapshot" in title_raw) else None
-                title = scrub_external(title_raw, source="opensuse-rss", package=pkg)
-                desc_raw = _child_text(entry, "description")
-                link_raw = _child_text(entry, "link")
-                importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
-                items.append(
-                    NewsItem(
-                        title=title,
-                        source="opensuse-rss",
-                        item_type="snapshot" if pkg else "news",
-                        importance=importance,
-                        content=scrub_external(desc_raw, source="opensuse-rss", package=pkg)
-                        if desc_raw
-                        else None,
-                        url=link_raw,
-                        date=datetime.now(UTC),
-                        package_name=pkg,
-                    )
+            text = await resp.text()
+        root = DefusedET.fromstring(text)
+        for entry in root.iter("item"):
+            if len(items) >= limit:
+                break
+            title_raw = _child_text(entry, "title")
+            if not title_raw:
+                continue
+            pkg = "Tumbleweed" if ("Tumbleweed" in title_raw or "Snapshot" in title_raw) else None
+            title = scrub_external(title_raw, source="opensuse-rss", package=pkg)
+            desc_raw = _child_text(entry, "description")
+            link_raw = _child_text(entry, "link")
+            importance = "CRITICAL" if pkg == "Tumbleweed" else "Routine"
+            items.append(
+                NewsItem(
+                    title=title,
+                    source="opensuse-rss",
+                    item_type="snapshot" if pkg else "news",
+                    importance=importance,
+                    content=scrub_external(desc_raw, source="opensuse-rss", package=pkg)
+                    if desc_raw
+                    else None,
+                    url=link_raw,
+                    date=datetime.now(UTC),
+                    package_name=pkg,
                 )
+            )
     except Exception as e:
         _logger.warning("opensuse_news_error", error=str(e))
     return items
