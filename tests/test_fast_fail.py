@@ -24,6 +24,7 @@ def _make_db() -> AsyncMock:
     db.touch_manifest = AsyncMock()
     db.fetch_entries = AsyncMock(return_value=[])
     db.get_synced_at = AsyncMock(return_value=None)
+    db.get_upstream_url = AsyncMock(return_value=None)
     return db
 
 

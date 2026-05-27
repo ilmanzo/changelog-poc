@@ -36,6 +36,7 @@ def _make_db(upsert_returns: int = 3) -> AsyncMock:
     db.upsert_package = AsyncMock(return_value=1)
     db.upsert_changelog_entries = AsyncMock(return_value=upsert_returns)
     db.touch_manifest = AsyncMock()
+    db.get_upstream_url = AsyncMock(return_value=None)
     return db
 
 

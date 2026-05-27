@@ -18,6 +18,9 @@ import structlog
 from . import embedder
 from .db import Database
 from .sources import SourceRegistry
+from .sources.github_source import GitHubSource, parse_github_repo
+from .sources.gitlab_source import GitLabSource, parse_gitlab_repo
+from .sources.base import SourceError, SourceNotFound
 
 _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.+]+$")
 
@@ -182,20 +185,111 @@ class IngestService:
         )
         await self._db.touch_manifest(package_id, kind="changelog")
 
+        upstream_extra = await self._enrich_upstream(
+            package, package_id, result.upstream_url, log,
+        )
+        total = inserted + upstream_extra
+
         elapsed = round(time.perf_counter() - t0, 3)
         log.info(
             "indexed",
-            entries=inserted,
+            entries=total,
             source=result.source_name,
+            upstream_extra=upstream_extra,
             elapsed_s=elapsed,
         )
         return IngestResult(
             package=package,
             status=IngestStatus.INDEXED,
-            entries=inserted,
+            entries=total,
             source=result.source_name,
             elapsed_s=elapsed,
         )
+
+    async def _enrich_upstream(
+        self,
+        package: str,
+        package_id: int,
+        upstream_url: str | None,
+        log: structlog.stdlib.BoundLogger,
+    ) -> int:
+        """Best-effort: fetch release notes from GitHub/GitLab if URL resolves."""
+        url = upstream_url or await self._db.get_upstream_url(package)
+        if not url:
+            url = await self._resolve_upstream_url(package)
+            if url:
+                await self._db.upsert_package(
+                    name=package, upstream_url=url,
+                )
+        if not url:
+            return 0
+
+        source: GitHubSource | GitLabSource | None = None
+        try:
+            if parse_github_repo(url):
+                source = GitHubSource(url)
+            elif parse_gitlab_repo(url):
+                source = GitLabSource(url)
+        except ValueError:
+            return 0
+
+        if source is None:
+            return 0
+
+        try:
+            result = await source.fetch(package)
+        except (SourceNotFound, SourceError) as exc:
+            log.info("upstream_skip", url=url, reason=str(exc))
+            return 0
+
+        if result.is_empty:
+            return 0
+
+        embs = await embedder.embed_batch(e.content for e in result.entries)
+        if not embs:
+            embs = [[] for _ in result.entries]
+
+        inserted = await self._db.upsert_changelog_entries(
+            package_name=package,
+            package_id=package_id,
+            entries=result.entries,
+            embeddings=embs,
+            source_name=result.source_name,
+        )
+        log.info(
+            "upstream_enriched",
+            source=result.source_name,
+            entries=inserted,
+            url=url,
+        )
+        return inserted
+
+    async def _resolve_upstream_url(self, package: str) -> str | None:
+        """Try OBS spec header and _service file to find a forge URL."""
+        import aiohttp as _aiohttp
+
+        from .spec_url_extractor import extract_upstream_urls
+        from .service_file_parser import extract_urls_from_service
+
+        base = "https://api.opensuse.org/public/source/openSUSE:Factory"
+
+        async with _aiohttp.ClientSession() as session:
+            for suffix, parser in (
+                (f"/{package}/{package}.spec", extract_upstream_urls),
+                (f"/{package}/_service", extract_urls_from_service),
+            ):
+                try:
+                    async with session.get(base + suffix) as resp:
+                        if resp.status != 200:
+                            continue
+                        text = await resp.text()
+                except _aiohttp.ClientError:
+                    continue
+                urls = parser(text)
+                if urls:
+                    return urls[0]
+
+        return None
 
     async def _stale_fallback(
         self, package: str

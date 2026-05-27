@@ -31,6 +31,7 @@ def _db_with_cache(rows: list[dict] | None) -> AsyncMock:
     db.upsert_package = AsyncMock(return_value=42)
     db.upsert_changelog_entries = AsyncMock(return_value=0)
     db.touch_manifest = AsyncMock()
+    db.get_upstream_url = AsyncMock(return_value=None)
     return db
 
 
