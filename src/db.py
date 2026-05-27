@@ -473,6 +473,28 @@ class Database:
                 package_name,
             )
 
+    async def find_untested_packages(
+        self, days: int = 90, limit: int = 5,
+    ) -> list[asyncpg.Record]:
+        """Packages with recent changelog entries but no openqa_tests rows."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                """
+                SELECT DISTINCT p.name,
+                       MAX(ce.entry_date) AS latest_change,
+                       COUNT(ce.id)       AS change_count
+                FROM packages p
+                JOIN changelog_entries ce ON ce.package_id = p.id
+                LEFT JOIN openqa_tests t  ON t.package_id  = p.id
+                WHERE t.id IS NULL
+                  AND ce.entry_date >= now() - make_interval(days => $1)
+                GROUP BY p.name
+                ORDER BY latest_change DESC
+                LIMIT $2
+                """,
+                days, limit,
+            )
+
     # ------------------------------------------------------------------
     # deps
     # ------------------------------------------------------------------

@@ -107,10 +107,36 @@ def _append_status_block(
     lines.append("")
 
 
+@_tool_wrapper("find_untested_changes")
+async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
+    """Find packages with recent changelog activity but no recorded openQA tests.
+
+    Useful for identifying coverage gaps after upstream bumps.
+    """
+    rows = await db.find_untested_packages(days=days, limit=limit)
+    _tlog(results=len(rows))
+    if not rows:
+        return (
+            f"All packages with changelog entries in the last {days} days "
+            "have at least one recorded openQA test."
+        )
+    lines = [
+        f"Packages with changes in the last {days}d but no openQA test coverage ({len(rows)}):"
+    ]
+    for r in rows:
+        lines.append(
+            f"\n  {r['name']}"
+            f"  (latest change: {_format_date(r['latest_change'])},"
+            f" {r['change_count']} entries)"
+        )
+    return "\n".join(lines)
+
+
 CLI_TOOLS = (
     get_news,
     get_openqa_tests,
     get_sync_status,
+    find_untested_changes,
 )
 
 
