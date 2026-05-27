@@ -49,6 +49,9 @@ fi
 
 [[ ${#TAPES[@]} -gt 0 ]] || die "no .tape files found in $TAPE_DIR"
 
+HAS_FFMPEG=false
+command -v ffmpeg >/dev/null 2>&1 && HAS_FFMPEG=true
+
 HAS_GIFSICLE=false
 command -v gifsicle >/dev/null 2>&1 && HAS_GIFSICLE=true
 
@@ -60,14 +63,23 @@ for tape in "${TAPES[@]}"; do
     echo "=== Recording ${base} ==="
     vhs "$tape"
 
+    if $HAS_FFMPEG; then
+        tmp="${gif%.gif}_dedup.gif"
+        ffmpeg -loglevel error -i "$gif" \
+            -filter_complex "[0:v]mpdecimate,setpts=N/FRAME_RATE/TB,split=2[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer" \
+            -y "$tmp" \
+            && mv "$tmp" "$gif"
+        echo "    removed static frames"
+    fi
+
     if $HAS_GIFSICLE; then
         orig_size=$(stat -c%s "$gif")
         gifsicle --batch --optimize=3 \
             --lossy=80 \
-            "$gif"
+            "$gif" -d3000 "#-1"
         new_size=$(stat -c%s "$gif")
         saved=$(( (orig_size - new_size) * 100 / orig_size ))
-        echo "    optimized: ${saved}% smaller"
+        echo "    optimized: ${saved}% smaller (30s pause on last frame)"
     fi
 
     echo "    -> ${gif}"
@@ -75,6 +87,9 @@ done
 
 echo ""
 echo "Done. Recorded ${#TAPES[@]} demo(s)."
+if ! $HAS_FFMPEG; then
+    echo "Tip: install ffmpeg to auto-remove static frames from GIFs (zypper in ffmpeg)"
+fi
 if ! $HAS_GIFSICLE; then
     echo "Tip: install gifsicle for automatic GIF optimization (zypper in gifsicle)"
 fi
