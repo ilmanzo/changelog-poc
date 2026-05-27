@@ -18,9 +18,8 @@ import structlog
 from . import embedder
 from .db import Database
 from .sources import SourceRegistry
-from .sources.github_source import GitHubSource, parse_github_repo
-from .sources.gitlab_source import GitLabSource, parse_gitlab_repo
 from .sources.base import SourceError, SourceNotFound
+from .sources.url_router import parse_upstream_url
 
 _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.+]+$")
 
@@ -224,15 +223,7 @@ class IngestService:
         if not url:
             return 0
 
-        source: GitHubSource | GitLabSource | None = None
-        try:
-            if parse_github_repo(url):
-                source = GitHubSource(url)
-            elif parse_gitlab_repo(url):
-                source = GitLabSource(url)
-        except ValueError:
-            return 0
-
+        source = parse_upstream_url(url)
         if source is None:
             return 0
 
