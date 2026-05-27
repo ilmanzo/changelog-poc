@@ -302,11 +302,14 @@ class Database:
             params.append(since)
         return await self._fetch_text_search(where_clauses=where, params=params)
 
-    async def find_bug(
-        self, bug_ref: str, package_name: str | None = None
+    async def _substring_search(
+        self, needle: str, package_name: str | None, limit: int = 200
     ) -> list[asyncpg.Record]:
-        """Case-insensitive substring search for a specific bug ID (e.g. bsc#1234567)."""
-        like = f"%{bug_ref}%"
+        """Case-insensitive ILIKE '%needle%' over changelog_entries.content.
+
+        Scoped to *package_name* if provided; otherwise global with *limit* cap.
+        """
+        like = f"%{needle}%"
         if package_name:
             return await self._fetch_text_search(
                 where_clauses=["p.name = $1", "ce.content ILIKE $2"],
@@ -317,8 +320,14 @@ class Database:
             where_clauses=["ce.content ILIKE $1"],
             params=[like],
             include_package=True,
-            limit=200,
+            limit=limit,
         )
+
+    async def find_bug(
+        self, bug_ref: str, package_name: str | None = None
+    ) -> list[asyncpg.Record]:
+        """Case-insensitive substring search for a specific bug ID (e.g. bsc#1234567)."""
+        return await self._substring_search(bug_ref, package_name)
 
     async def list_package_cves(
         self, package_name: str, since: datetime | None = None
@@ -334,19 +343,8 @@ class Database:
     async def find_cve(
         self, cve_id: str, package_name: str | None = None
     ) -> list[asyncpg.Record]:
-        like = f"%{cve_id}%"
-        if package_name:
-            return await self._fetch_text_search(
-                where_clauses=["p.name = $1", "ce.content ILIKE $2"],
-                params=[package_name, like],
-                include_package=True,
-            )
-        return await self._fetch_text_search(
-            where_clauses=["ce.content ILIKE $1"],
-            params=[like],
-            include_package=True,
-            limit=200,
-        )
+        """Case-insensitive substring search for a specific CVE ID."""
+        return await self._substring_search(cve_id, package_name)
 
     # ------------------------------------------------------------------
     # specs + spec_sections
