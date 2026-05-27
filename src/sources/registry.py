@@ -54,10 +54,10 @@ class SourceRegistry:
             await source.close()
 
     async def _fetch_waterfall(
-        self, package: str, sources: list[ChangelogSource] | None = None,
+        self, package: str, sources: list[ChangelogSource],
     ) -> FetchResult:
         any_error = False
-        for source in (sources or self._sources):
+        for source in sources:
             try:
                 result = await source.fetch(package)
                 if not result.is_empty:
@@ -77,11 +77,10 @@ class SourceRegistry:
         return FetchResult(entries=[], source_name="none", fetch_failed=any_error)
 
     async def _fetch_parallel(
-        self, package: str, sources: list[ChangelogSource] | None = None,
+        self, package: str, sources: list[ChangelogSource],
     ) -> FetchResult:
-        all_sources = sources or self._sources
-        local = [s for s in all_sources if s.is_local]
-        network = [s for s in all_sources if not s.is_local]
+        local = [s for s in sources if s.is_local]
+        network = [s for s in sources if not s.is_local]
         any_error = False
         for source in local:
             try:

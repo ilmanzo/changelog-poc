@@ -291,7 +291,7 @@ async def compare_versions(package: str, refresh: bool = False) -> str:
     if refresh:
         await ingest_service.ingest_all_distros(package)
     rows = await db.compare_versions(package)
-    _tlog(distros=len(rows))
+    _tlog(distros=len(rows), refresh=refresh)
     if not rows:
         return f"No changelog data for '{package}' in any distro. Try sync_package first."
     lines = [f"Version comparison for {package}:"]
