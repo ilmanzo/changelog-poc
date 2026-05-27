@@ -10,6 +10,7 @@
 > - Priority rows #1 and #2 in the table below: dropped.
 
 **Result (2026-05-23):** 181 tests passing, 1 xfailed, 73% coverage (target was 70%).
+**Updated (2026-05-27):** 344 unit tests passing, 53 e2e deselected. Cross-distro ingest, upstream enrichment (GitHub/GitLab), test coverage gaps, VHS demos, threat model all shipped.
 
 ## Context
 
@@ -708,8 +709,8 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 13 | N5 + N6 + DD6 — Worker daemon + systemd units [done] | Phase 4/5 production work |
 | 14 | DD12 + N2 — Tiered cache TTL [done] | Worker work continues |
 | 15 | S2, S3, S5, S6 [done] | Security cleanup batch |
-| 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc | Defense-in-depth follow-up (b/d/e done; h pending) |
-| 17 | B2, B3, B4 | Minor bug batch |
+| 16 | S7(b,d,e,h) — Output disclaimer, length caps, heuristic logging, threat doc [done] | Defense-in-depth follow-up (all done; h = docs/THREAT_MODEL.md) |
+| 17 | B2, B3, B4 [done] | Minor bug batch (B3 was already fixed before audit) |
 | 18 | R5–R10 | Refactor cleanup batch |
 | 19 | DD13 — HNSW bench + tune to <500ms p95 | Phase 4 tuning; needs realistic data volume first |
 | 20 | DD8 + N4 — Embedding versioning migration | Defer until first model swap is needed |
@@ -797,7 +798,8 @@ on startup and `db.close()` on shutdown — no global state is touched between r
 applies one of two strategies per call:
 
 **WATERFALL** (default): try sources left-to-right; return on first non-empty
-result. Order: `RpmSource` → `ObsSource` → `GiteaSource`.
+result. Order: `RpmSource` → `ObsSource` → `GiteaSource` → `FedoraSource` → `UbuntuSource`.
+Sources are filtered by `distro` attribute when `fetch(package, distro=...)` is called.
 
 **PARALLEL**: run local sources (is_local=True) first sequentially; if still
 empty, fan out all network sources with `asyncio.gather`. Return the result
@@ -810,23 +812,29 @@ both: `SourceNotFound` → skip silently; `SourceError` → log warning, set
 `FetchResult.fetch_failed=True` so the ingest service knows to fall back to
 stale cache.
 
-| Source | is_local | Transport | Parser |
-|---|---|---|---|
-| `RpmSource` | True | `rpm -q --changelog` subprocess | `RPMManager` |
-| `ObsSource` | False | HTTPS → `api.opensuse.org/public/source/openSUSE:Factory/{pkg}/{pkg}.changes` | `obs_parser.parse_obs_changes` |
-| `GiteaSource` | False | HTTPS → `src.opensuse.org/openSUSE/{pkg}/raw/branch/master/{pkg}.changes` | `obs_parser.parse_obs_changes` |
+| Source | distro | is_local | Transport | Parser |
+|---|---|---|---|---|
+| `RpmSource` | opensuse | True | `rpm -q --changelog` subprocess | `RPMManager` |
+| `ObsSource` | opensuse | False | HTTPS → `api.opensuse.org/public/source/openSUSE:Factory/{pkg}/{pkg}.changes` | `obs_parser.parse_obs_changes` |
+| `GiteaSource` | opensuse | False | HTTPS → `src.opensuse.org/openSUSE/{pkg}/raw/branch/master/{pkg}.changes` | `obs_parser.parse_obs_changes` |
+| `FedoraSource` | fedora | False | HTTPS → `src.fedoraproject.org/{pkg}/blob/rawhide/f/{pkg}.spec` | `obs_parser.parse_obs_changes` (%changelog section) |
+| `UbuntuSource` | ubuntu | False | HTTPS → `changelogs.ubuntu.com/changelogs/binary/{pkg}/changelog` | `ubuntu_parser.parse_debian_changelog` |
+| `GitHubSource` | * | False | HTTPS → `api.github.com/repos/{owner}/{repo}/releases` | Direct mapping to `ChangelogEntry` |
+| `GitLabSource` | * | False | HTTPS → `gitlab.com/api/v4/projects/{id}/releases` | Direct mapping to `ChangelogEntry` |
 
-Both `ObsSource` and `GiteaSource` extend `HttpSource` (tenacity retry, shared
-`httpx.AsyncClient`, `_fetch_text` helper that raises the typed exceptions).
-Both cache results with `@alru_cache(maxsize=128)` — repeated calls within a
-session hit no network.
+All HTTP sources extend `HttpSource` (tenacity retry, shared `httpx.AsyncClient`,
+`_fetch_text` helper that raises typed exceptions). Registry-based sources cache
+results with `@alru_cache(maxsize=128)`. `GitHubSource`/`GitLabSource` are
+instantiated per-package by `IngestService._enrich_upstream` (not in registry).
 
 ---
 
 ### Ingestion pipeline
 
 `IngestService.ingest(package, distro)` is the single entry point for both
-on-demand (tool call) and batch (worker daemon) ingestion:
+on-demand (tool call) and batch (worker daemon) ingestion.
+`IngestService.ingest_all_distros(package)` fans out across all known distros
+in parallel, enabling cross-distro version comparison:
 
 ```
 IngestService._get_or_start(package, distro)
@@ -855,8 +863,15 @@ IngestService._get_or_start(package, distro)
             │       → id = uuid5(PKG_NAMESPACE, f"{package}::{content}")
             │         (content-addressed — same text from OBS and Gitea converges to one row)
             │
-            └── db.touch_manifest(package_id, kind="changelog")
-                    → UPDATE manifest SET synced_at=now() WHERE (package_id, kind)
+            ├── db.touch_manifest(package_id, kind="changelog")
+            │       → UPDATE manifest SET synced_at=now() WHERE (package_id, kind)
+            │
+            └── _enrich_upstream(package, package_id, upstream_url)
+                    → resolve forge URL from spec header / OBS _service file
+                    → if GitHub/GitLab URL found:
+                        GitHubSource(url).fetch() or GitLabSource(url).fetch()
+                        → embed + upsert release notes as additional entries
+                    → best-effort; failures silently skipped
 ```
 
 `IngestService.schedule(package)` is the fire-and-forget variant used by the
@@ -976,9 +991,11 @@ unknown package — the client gets an immediate, actionable message.
 Captured for future iterations once the PoC graduates. Not on the current burndown.
 
 - **F1** — Test catalog integration. Pull test metadata beyond openQA (e.g. distro QA suites, upstream CI matrices) and surface a unified `get_tests(pkg)` view.
-- **F2a** — Fedora changelog ingestion. `PagureSpecSource` already fetches `.spec` from `src.fedoraproject.org`; extract its `%changelog` section and feed it to the existing `obs_parser.parse_obs_changes()` (same format). New `src/sources/fedora_source.py::FedoraSource`; registered after `GiteaSource` in the waterfall. No migration — uses `distro='fedora'` in `packages.distro`.
-- **F2b** — Ubuntu/Debian changelog ingestion. URL pattern: `https://changelogs.ubuntu.com/changelogs/pool/<section>/<prefix>/<pkg>/<pkg>_<ver>/changelog`. Two-step fetch (resolve version → fetch changelog). New `src/ubuntu_parser.py` (Debian changelog format → `list[ChangelogEntry]`). "Easy to find" heuristic: same package name; skip on 404. Distro values: `'ubuntu'` / `'debian'`. Add `migrations/003_distro_index.sql` for composite index on `(name, distro)`.
-- **F3a** — Upstream URL extraction. New `src/spec_url_extractor.py::extract_upstream_urls(spec_text)`: regex on `^URL:` and `^Source0?:` lines. Fetch OBS `_service` XML (`GET api.opensuse.org/source/openSUSE:Factory/{pkg}/_service`) and parse `<param name="url">` with `defusedxml.ElementTree`. Store resolved URL in new `packages.upstream_url` column (migration 003).
-- **F3b** — GitHub/GitLab release notes. New `src/sources/github_source.py::GitHubSource(ChangelogSource)`: hits `api.github.com/repos/{owner}/{repo}/releases?per_page=100`, maps each release to `ChangelogEntry(version=tag_name, text=body, date=published_at)`. Auth via optional `GITHUB_TOKEN` env var. `GitLabSource` mirrors the interface. Reuse `changelog_entries` table with `source='github_release'`; `manifest.kind='github_release'` for TTL.
-- **F4** — Local test-repo clone for coverage-gap queries. `src/test_repo_manager.py::TestRepoManager`: shallow-clone `os-autoinst-distri-opensuse` (configurable via `TEST_REPO_URL`/`TEST_REPO_PATH`) and refresh on each worker cycle. Parser `src/test_coverage_parser.py` scans `.pm` files for `zypper_install`/`ensure_installed` calls and test path heuristics → ingest into existing `openqa_tests` table. New tool `find_untested_changes(days, limit)`: JOIN `changelog_entries` × `packages` LEFT JOIN `openqa_tests` WHERE test IS NULL, ordered by cosine similarity to "security fix important change".
-- **F5** — Development diary + VHS recordings. Convert `docs/blog-draft.md` to `docs/dev-diary.md` (plain Markdown, Confluence-compatible, no Hugo shortcodes). The diary must open by stating this project was built during the **SUSE AI Hackathon workshop, 25–29 May 2026, Nuremberg**. Add `docs/vhs/demo_changelog.tape`, `demo_search.tape`, `demo_untested.tape` — each tape starts `mcp_server.py` as a background process before invoking `gemini-cli`, then kills it. Output GIFs referenced in the diary as image links.
+- **F2a** [done] — Fedora changelog ingestion. `src/sources/fedora_source.py::FedoraSource` fetches `.spec` from `src.fedoraproject.org`, extracts `%changelog`, parses with `obs_parser`. Registered in `SourceRegistry` with `distro='fedora'`.
+- **F2b** [done] — Ubuntu/Debian changelog ingestion. `src/sources/ubuntu_source.py::UbuntuSource` fetches from `changelogs.ubuntu.com`. `src/ubuntu_parser.py` parses Debian changelog format. `distro='ubuntu'`. `migrations/003_cross_distro.sql` adds composite index on `(name, distro)`.
+- **F3a** [done] — Upstream URL extraction. `src/spec_url_extractor.py::extract_upstream_urls(spec_text)` extracts forge URLs from spec headers. `src/service_file_parser.py::extract_urls_from_service(xml)` parses OBS `_service` XML with `defusedxml`. `IngestService._resolve_upstream_url` tries both on-the-fly from OBS public API. URL stored in `packages.upstream_url` column.
+- **F3b** [done] — GitHub/GitLab release notes. `src/sources/github_source.py::GitHubSource` and `src/sources/gitlab_source.py::GitLabSource` fetch releases API. Auth via optional `GITHUB_TOKEN`/`GITLAB_TOKEN` env vars. Wired into ingest via `IngestService._enrich_upstream` (best-effort post-ingest enrichment). Content stored with `source='github_release'`/`'gitlab_release'`.
+- **F4** [done] — Local test-repo clone for coverage-gap queries. `src/test_repo_manager.py::TestRepoManager` clones `os-autoinst-distri-opensuse` (configurable via `TEST_REPO_URL`/`TEST_REPO_PATH`). `src/test_coverage_parser.py` scans `.pm` files. `find_untested_changes(days, limit)` tool in `src/tools/news.py`.
+- **F5** [done] — VHS recordings in `docs/vhs/` (demo_changelog.tape, demo_search.tape, demo_untested.tape). `scripts/record_demos.sh` automates recording. Development diary target: `docs/dev-diary.md` (plain Markdown for Confluence).
+- **Cross-distro features** [done] — `SourceRegistry.fetch(distro=...)` filters sources by distro attribute. `IngestService.ingest_all_distros(package)` runs parallel per-distro ingest. `compare_versions(package)` tool returns latest version per distro. `sync_all_distros(package)` tool triggers cross-distro ingest. `scripts/ingest_core.sh` supports `CROSS_DISTRO=1` env var.
+- **S7h** [done] — `docs/THREAT_MODEL.md`: data sources, trust boundaries, mitigations, accepted risks.
