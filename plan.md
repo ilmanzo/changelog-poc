@@ -724,10 +724,261 @@ Global mutable `_model` + `_lock` is hard to mock.
 | 29 | DD22 — DB pool sizing bench | Phase 4 bench result; ship min=1/max=2 default until then |
 | 30 | Demo recording — `docs/demo/cli.tape` (vhs) + screen-recorded MCP-client track | Marketing artifact for blog post; tape exists, needs render |
 
+## How the project works
+
+### Stack and process model
+
+The server is a single Python 3.13 process (`mcp_server.py`) that speaks
+the Model Context Protocol over **stdio**. Each developer runs their own
+copy; they all share one central PostgreSQL 17 + pgvector instance.
+No HTTP server, no auth, no SSE. FastMCP manages the JSON-RPC framing.
+
+```
+MCP client (gemini-cli / Claude / Cursor)
+    │  stdio (JSON-RPC)
+    ▼
+mcp_server.py          ← FastMCP, <30 lines — wires runtime + tools + CLI
+    │
+    ├── src/runtime.py ← process-wide singletons, lifespan async ctx manager
+    │       db, rpm_mgr, git_mgr, source_registry, ingest_service
+    │
+    ├── src/tools/     ← one module per concern, each registers tool handlers
+    │       changelog.py  deps.py  spec.py  news.py
+    │       _wrap.py      _helpers.py
+    │
+    └── src/db.py      ← asyncpg pool + pgvector, owns all SQL
+            PostgreSQL (packages, changelog_entries, specs, news, openqa_tests, deps, manifest)
+```
+
+`src/runtime.py` instantiates all long-lived objects at import time so
+they're available as module-level names (`from src.runtime import db, ingest_service`).
+The `lifespan` async context manager (passed to `FastMCP`) calls `db.connect()`
+on startup and `db.close()` on shutdown — no global state is touched between requests.
+
+---
+
+### Request lifecycle (example: `get_recent_releases("vim", n=5)`)
+
+```
+1. FastMCP dispatches the JSON-RPC call to the registered handler.
+
+2. @_tool_wrapper("get_recent_releases", untrusted_sources=("obs","gitea","rpm"))
+      → resets per-task contextvars (_log_extras, _stale_state, _suppress_envelope)
+      → records t0 = time.perf_counter()
+
+3. _helpers.queued_msg_or_none("vim", refresh=False)
+      → db.get_package_id("vim")          ← pool.acquire(); SELECT packages
+      → if None:
+            ingest_service.schedule("vim") ← asyncio.create_task(_ingest_one)
+            return MSG_PKG_QUEUED          ← client retries in ~5 s
+      → if stale (past TTL):
+            await ingest_service.ingest("vim")   ← blocks until fresh
+            if STALE: _mark_stale(synced_at)     ← sets contextvar
+      → returns None (package is ready)
+
+4. db.fetch_entries(pkg_id, limit=N)   ← SELECT changelog_entries ORDER BY entry_date DESC
+
+5. Format entries into a human-readable string.
+
+6. _tool_wrapper assembles the final response:
+      - if _stale_state set: prepend "WARNING: source fetch failed; serving cached data from <ts>\n\n"
+      - if untrusted_sources non-empty and not CLI: wrap body in
+        <rpm-mcp:untrusted-data sources="obs,gitea,rpm">…</rpm-mcp:untrusted-data>
+      - log tool_done with elapsed_s, stale flag, structured fields
+
+7. FastMCP serialises the string as a JSON-RPC result and writes to stdout.
+```
+
+---
+
+### Source registry and fetch strategies
+
+`SourceRegistry` holds an ordered list of `ChangelogSource` instances and
+applies one of two strategies per call:
+
+**WATERFALL** (default): try sources left-to-right; return on first non-empty
+result. Order: `RpmSource` → `ObsSource` → `GiteaSource`.
+
+**PARALLEL**: run local sources (is_local=True) first sequentially; if still
+empty, fan out all network sources with `asyncio.gather`. Return the result
+with the most entries.
+
+Each source implements one abstract method — `async fetch(package) -> FetchResult` —
+and raises `SourceNotFound` (package definitively absent, e.g. HTTP 404) or
+`SourceError` (transient failure after tenacity retries). The registry catches
+both: `SourceNotFound` → skip silently; `SourceError` → log warning, set
+`FetchResult.fetch_failed=True` so the ingest service knows to fall back to
+stale cache.
+
+| Source | is_local | Transport | Parser |
+|---|---|---|---|
+| `RpmSource` | True | `rpm -q --changelog` subprocess | `RPMManager` |
+| `ObsSource` | False | HTTPS → `api.opensuse.org/public/source/openSUSE:Factory/{pkg}/{pkg}.changes` | `obs_parser.parse_obs_changes` |
+| `GiteaSource` | False | HTTPS → `src.opensuse.org/openSUSE/{pkg}/raw/branch/master/{pkg}.changes` | `obs_parser.parse_obs_changes` |
+
+Both `ObsSource` and `GiteaSource` extend `HttpSource` (tenacity retry, shared
+`httpx.AsyncClient`, `_fetch_text` helper that raises the typed exceptions).
+Both cache results with `@alru_cache(maxsize=128)` — repeated calls within a
+session hit no network.
+
+---
+
+### Ingestion pipeline
+
+`IngestService.ingest(package, distro)` is the single entry point for both
+on-demand (tool call) and batch (worker daemon) ingestion:
+
+```
+IngestService._get_or_start(package, distro)
+    │
+    ├── coalescing: if a task for (package, distro) is already in _pending
+    │   and not done, return it — multiple callers share one task.
+    │
+    └── asyncio.create_task(_ingest_one)
+            │
+            ├── validate_package_name (regex whitelist)
+            │
+            ├── SourceRegistry.fetch(package)
+            │       → FetchResult{entries, upstream_url, source_name, fetch_failed}
+            │
+            ├── if fetch_failed and no entries:
+            │       _stale_fallback() → serve cached rows, IngestStatus.STALE
+            │
+            ├── db.upsert_package(name, distro, upstream_url)
+            │       → INSERT … ON CONFLICT DO UPDATE  →  package_id (uuid)
+            │
+            ├── embedder.embed_batch(entry.content for entry in entries)
+            │       → fastembed BGE-small-en-v1.5, 384-dim float32 vectors
+            │
+            ├── db.upsert_changelog_entries(package_id, entries, embeddings, source_name)
+            │       → INSERT … ON CONFLICT (id) DO NOTHING
+            │       → id = uuid5(PKG_NAMESPACE, f"{package}::{content}")
+            │         (content-addressed — same text from OBS and Gitea converges to one row)
+            │
+            └── db.touch_manifest(package_id, kind="changelog")
+                    → UPDATE manifest SET synced_at=now() WHERE (package_id, kind)
+```
+
+`IngestService.schedule(package)` is the fire-and-forget variant used by the
+fast-fail readiness probe. It creates the same task but the caller does not
+await it; exceptions are captured inside `_ingest_one` and logged as
+`IngestStatus.ERROR`.
+
+---
+
+### Database layer
+
+`Database` wraps an `asyncpg.Pool`. On `connect()` it:
+1. Opens a bootstrap connection and runs `CREATE EXTENSION IF NOT EXISTS vector/pg_trgm`.
+2. Creates the pool with `init=_init_conn` (registers pgvector codec on every connection).
+3. Applies all `migrations/*.sql` in lexicographic order (idempotent DDL).
+
+**Content-addressed dedup** (`content_uuid`):
+
+```python
+uuid.uuid5(PKG_NAMESPACE, f"{package_name}::{content}")
+```
+
+The same `.changes` block fetched from OBS and from Gitea produces the same
+UUID primary key. `ON CONFLICT (id) DO NOTHING` makes every upsert idempotent —
+re-ingesting a package is safe at any frequency.
+
+**Search modes** available to tools:
+
+| Mode | SQL mechanism | Used by |
+|---|---|---|
+| Semantic | `<=>` cosine distance on HNSW index (`embedding vector(384)`) | `semantic_search` |
+| Full-text | GIN index on `tsv tsvector` generated column | `fts_search` |
+| Hybrid | Both, merged by rank | `find_cve`, `find_bug` |
+| Relational | Plain `WHERE` on `entry_date`, `version`, `package_id` | `get_recent_releases`, `get_changes_in_range` |
+
+Dynamic WHERE clauses (e.g. optional `since` filter) are assembled from a
+whitelist validated by `_SAFE_WHERE_CLAUSE` regex before execution — no string
+interpolation of user values into SQL.
+
+**TTL and freshness** (`manifest` table):
+
+Each `(package_id, kind)` pair has a `synced_at` timestamp. `db.is_fresh(pkg_id, ttl_s, kind)`
+compares `now() - synced_at` against the configured TTL:
+
+| Kind | TTL env var | Default |
+|---|---|---|
+| `changelog` | `CACHE_TTL_CHANGELOG_S` | 86400 s (1 day) |
+| `spec` | `CACHE_TTL_SPEC_S` | 604800 s (7 days) |
+| `news` | `CACHE_TTL_NEWS_S` | 3600 s (1 hour) |
+
+---
+
+### Tool wrapper (`_tool_wrapper`)
+
+Every MCP tool is decorated with `@_tool_wrapper(name, untrusted_sources=(...))`.
+The decorator:
+
+- Resets three `contextvars` at the start of each call (prevents cross-task leakage).
+- Binds structlog fields from the function signature for the terminal log record.
+- Calls `await fn(...)`.
+- On success: reads `_stale_state` contextvar; if set, prepends the WARNING banner.
+- Wraps the body in `<rpm-mcp:untrusted-data sources="...">` if `untrusted_sources`
+  is non-empty and `_suppress_envelope` is False (the CLI sets it True so humans
+  don't see XML in terminal output).
+- On exception: logs `tool_error` and returns a user-facing `"Error in <tool>: ..."` string.
+
+---
+
+### Fast-fail readiness probe (`_ensure_or_queue`)
+
+Tools call `queued_msg_or_none(package, refresh)` before touching the DB for reads:
+
+```python
+pkg_id = await db.get_package_id(package)
+if pkg_id is None:                          # never ingested
+    ingest_service.schedule(package)        # background task, don't await
+    return MSG_PKG_QUEUED                   # client retries in ~5 s
+
+if not refresh and await db.is_fresh(...):  # cached and current
+    return None                             # READY
+
+res = await ingest_service.ingest(package)  # blocking refresh
+if res.status is IngestStatus.STALE:
+    _mark_stale(res.synced_at)              # contextvar → stale banner via wrapper
+return None                                 # READY (possibly stale)
+```
+
+This ensures no tool ever blocks indefinitely on a first-time ingest for an
+unknown package — the client gets an immediate, actionable message.
+
+---
+
+### Security layers
+
+**Input validation:**
+- `validate_package_name` enforces `^[a-zA-Z0-9_\-.+]+$` before any network call.
+- `GitManager` re-validates package names before passing to `git` subprocesses.
+- All upstream URLs must start with `https://` (`_ALLOWED_SCHEMES` in http_source).
+
+**External content sanitisation (`src/sanitize.py`):**
+- `scrub_external(text, package, source)` is called by every parser before
+  creating `ChangelogEntry` objects. It:
+  - Truncates to `cache_max_entry_bytes` (8 KB) per entry.
+  - Counts prompt-injection marker tokens (e.g. `<|`, `[INST]`, `###`, `SYSTEM`).
+  - If ≥ 2 markers found: logs `possible_injection` at WARNING with `package`/`source`
+    context. (Content is still served — the envelope handles LLM trust boundary.)
+
+**Output envelope (S7b):**
+- `_wrap_untrusted(body, sources)` wraps tool output so a downstream LLM
+  knows the content is external data, not trusted system instructions.
+- Suppressed on the CLI path via `_suppress_envelope` contextvar.
+
+---
+
 ## Post-PoC backlog (out of scope)
 
 Captured for future iterations once the PoC graduates. Not on the current burndown.
 
 - **F1** — Test catalog integration. Pull test metadata beyond openQA (e.g. distro QA suites, upstream CI matrices) and surface a unified `get_tests(pkg)` view.
-- **F2** — Cross-distro coverage. Survey Fedora (Pagure/Bodhi/Koji) and Ubuntu (Launchpad/`changelog.Debian.gz`) ingestion paths; extend the `Source` registry with `Fedora*`/`Ubuntu*` siblings. Decide whether `distro` becomes a query dimension on every tool or a deploy-time setting.
-- **F3** — Upstream GitHub correlation. For each package, resolve its upstream GitHub repo (heuristic: `Source0:` URL, `URL:` tag, or curated mapping) and merge upstream commit history / GitHub release notes into the changelog timeline alongside distro `.changes` entries.
+- **F2a** — Fedora changelog ingestion. `PagureSpecSource` already fetches `.spec` from `src.fedoraproject.org`; extract its `%changelog` section and feed it to the existing `obs_parser.parse_obs_changes()` (same format). New `src/sources/fedora_source.py::FedoraSource`; registered after `GiteaSource` in the waterfall. No migration — uses `distro='fedora'` in `packages.distro`.
+- **F2b** — Ubuntu/Debian changelog ingestion. URL pattern: `https://changelogs.ubuntu.com/changelogs/pool/<section>/<prefix>/<pkg>/<pkg>_<ver>/changelog`. Two-step fetch (resolve version → fetch changelog). New `src/ubuntu_parser.py` (Debian changelog format → `list[ChangelogEntry]`). "Easy to find" heuristic: same package name; skip on 404. Distro values: `'ubuntu'` / `'debian'`. Add `migrations/003_distro_index.sql` for composite index on `(name, distro)`.
+- **F3a** — Upstream URL extraction. New `src/spec_url_extractor.py::extract_upstream_urls(spec_text)`: regex on `^URL:` and `^Source0?:` lines. Fetch OBS `_service` XML (`GET api.opensuse.org/source/openSUSE:Factory/{pkg}/_service`) and parse `<param name="url">` with `defusedxml.ElementTree`. Store resolved URL in new `packages.upstream_url` column (migration 003).
+- **F3b** — GitHub/GitLab release notes. New `src/sources/github_source.py::GitHubSource(ChangelogSource)`: hits `api.github.com/repos/{owner}/{repo}/releases?per_page=100`, maps each release to `ChangelogEntry(version=tag_name, text=body, date=published_at)`. Auth via optional `GITHUB_TOKEN` env var. `GitLabSource` mirrors the interface. Reuse `changelog_entries` table with `source='github_release'`; `manifest.kind='github_release'` for TTL.
+- **F4** — Local test-repo clone for coverage-gap queries. `src/test_repo_manager.py::TestRepoManager`: shallow-clone `os-autoinst-distri-opensuse` (configurable via `TEST_REPO_URL`/`TEST_REPO_PATH`) and refresh on each worker cycle. Parser `src/test_coverage_parser.py` scans `.pm` files for `zypper_install`/`ensure_installed` calls and test path heuristics → ingest into existing `openqa_tests` table. New tool `find_untested_changes(days, limit)`: JOIN `changelog_entries` × `packages` LEFT JOIN `openqa_tests` WHERE test IS NULL, ordered by cosine similarity to "security fix important change".
+- **F5** — Development diary + VHS recordings. Convert `docs/blog-draft.md` to `docs/dev-diary.md` (plain Markdown, Confluence-compatible, no Hugo shortcodes). The diary must open by stating this project was built during the **SUSE AI Hackathon workshop, 25–29 May 2026, Nuremberg**. Add `docs/vhs/demo_changelog.tape`, `demo_search.tape`, `demo_untested.tape` — each tape starts `mcp_server.py` as a background process before invoking `gemini-cli`, then kills it. Output GIFs referenced in the diary as image links.
