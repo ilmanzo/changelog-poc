@@ -62,7 +62,9 @@ class Settings(BaseSettings):
     github_token: str = ""
     gitlab_token: str = ""
 
-    model_config = {"env_prefix": ""}
+    # Optional .env file in the working directory; OS env vars still win.
+    # `extra="ignore"` so unrelated keys in a shared .env don't error.
+    model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}
 
 
 settings = Settings()
