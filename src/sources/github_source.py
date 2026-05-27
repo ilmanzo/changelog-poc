@@ -1,7 +1,6 @@
 """Changelog source: GitHub release notes via the REST API."""
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 
@@ -9,6 +8,7 @@ import aiohttp
 import structlog
 
 from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
+from ..config import settings
 from ..models import ChangelogEntry
 from ..sanitize import scrub_external
 
@@ -42,7 +42,7 @@ class GitHubSource(ChangelogSource):
         self._owner, self._repo = parsed
 
     async def fetch(self, package: str) -> FetchResult:
-        token = os.environ.get("GITHUB_TOKEN", "")
+        token = settings.github_token
         headers: dict[str, str] = {"Accept": "application/vnd.github+json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"

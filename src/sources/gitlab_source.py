@@ -1,7 +1,6 @@
 """Changelog source: GitLab release notes via the REST API."""
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
@@ -10,6 +9,7 @@ import aiohttp
 import structlog
 
 from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
+from ..config import settings
 from ..models import ChangelogEntry
 from ..sanitize import scrub_external
 
@@ -49,7 +49,7 @@ class GitLabSource(ChangelogSource):
         self._host, self._project_path = parsed
 
     async def fetch(self, package: str) -> FetchResult:
-        token = os.environ.get("GITLAB_TOKEN", "")
+        token = settings.gitlab_token
         headers: dict[str, str] = {}
         if token:
             headers["PRIVATE-TOKEN"] = token

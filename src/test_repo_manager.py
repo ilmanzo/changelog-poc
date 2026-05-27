@@ -15,9 +15,6 @@ from .test_coverage_parser import scan_test_directory
 
 _logger = structlog.get_logger("rpm-mcp.test_repo")
 
-_DEFAULT_URL = "https://github.com/os-autoinst/os-autoinst-distri-opensuse"
-_DEFAULT_PATH = Path.home() / ".cache" / "rpm-mcp" / "os-autoinst"
-
 
 class TestRepoManager:
     """Shallow clone + pull for the openQA test repository."""
@@ -27,12 +24,8 @@ class TestRepoManager:
         repo_url: str | None = None,
         local_path: Path | None = None,
     ) -> None:
-        self.repo_url: str = repo_url or str(
-            getattr(settings, "test_repo_url", _DEFAULT_URL)
-        )
-        self.local_path: Path = local_path or Path(
-            str(getattr(settings, "test_repo_path", _DEFAULT_PATH))
-        )
+        self.repo_url: str = repo_url or settings.test_repo_url
+        self.local_path: Path = local_path or Path(settings.test_repo_path)
 
     async def clone_or_pull(self) -> None:
         """Ensure a fresh local copy exists."""

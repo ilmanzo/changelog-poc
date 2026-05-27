@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # Worker (centralised ingestion)
     worker_concurrency: int = 10
 
+    # Test repo (F4 — os-autoinst coverage analysis)
+    test_repo_url: str = "https://github.com/os-autoinst/os-autoinst-distri-opensuse"
+    test_repo_path: str = str(__import__("pathlib").Path.home() / ".cache" / "rpm-mcp" / "os-autoinst")
+
+    # Upstream forge tokens (F3b — optional, anonymous without)
+    github_token: str = ""
+    gitlab_token: str = ""
+
     model_config = {"env_prefix": ""}
 
 
