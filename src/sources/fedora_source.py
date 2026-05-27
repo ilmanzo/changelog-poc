@@ -45,4 +45,4 @@ class FedoraSource(HttpSource):
         entries = parse_obs_changes(
             changelog_text, package=package, source=self.name,
         )
-        return FetchResult(entries=entries, source_name=self.name)
+        return FetchResult(entries=entries, source_name=self.name, distro="fedora")

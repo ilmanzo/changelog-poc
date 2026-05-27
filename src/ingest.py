@@ -155,9 +155,10 @@ class IngestService:
                 elapsed_s=elapsed,
             )
 
+        effective_distro = result.distro or distro
         package_id = await self._db.upsert_package(
             name=package,
-            distro=distro,
+            distro=effective_distro,
             upstream_url=result.upstream_url,
         )
 

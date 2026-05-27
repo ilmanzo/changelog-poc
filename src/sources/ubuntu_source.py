@@ -31,4 +31,4 @@ class UbuntuSource(HttpSource):
         entries = parse_debian_changelog(
             text, package=package, source=self.name,
         )
-        return FetchResult(entries=entries, source_name=self.name)
+        return FetchResult(entries=entries, source_name=self.name, distro="ubuntu")

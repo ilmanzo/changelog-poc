@@ -26,6 +26,7 @@ class FetchResult:
     entries: list[ChangelogEntry]
     upstream_url: str | None = None   # populated only by RpmSource
     source_name: str = ""
+    distro: str = "opensuse"          # overridden by cross-distro sources
     fetch_failed: bool = False        # set by registry when ≥1 source raised SourceError
 
     @property

@@ -91,6 +91,7 @@ async def test_fetch_parses_changelog(source: FedoraSource) -> None:
 
     assert len(result.entries) == 2
     assert result.source_name == "fedora"
+    assert result.distro == "fedora"
     assert result.entries[0].version == "9.1"
     assert "CVE-2024-1234" in result.entries[0].content
 

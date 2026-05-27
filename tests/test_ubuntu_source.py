@@ -37,6 +37,7 @@ async def test_fetch_parses_entries(source: UbuntuSource) -> None:
 
     assert len(result.entries) == 2
     assert result.source_name == "ubuntu"
+    assert result.distro == "ubuntu"
     assert result.entries[0].version == "2:9.1.0016-1ubuntu1"
     assert "CVE-2024-22667" in result.entries[0].content
 
