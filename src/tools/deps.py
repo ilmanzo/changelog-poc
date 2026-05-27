@@ -64,7 +64,7 @@ async def get_dependency_changes(
         f"(depth={depth}, {len(deps_list)} packages, last {n} release(s) each):"
     ]
     ok = err = missing = queued = 0
-    for dep, res in zip(deps_list, results):
+    for dep, res in zip(deps_list, results, strict=True):
         if isinstance(res, BaseException):
             if not isinstance(res, Exception):
                 raise res
@@ -129,7 +129,7 @@ async def find_core_packages(
         return_exceptions=True,
     )
     scored: list[tuple[int, str]] = []
-    for pkg, res in zip(candidates, rdep_results):
+    for pkg, res in zip(candidates, rdep_results, strict=True):
         if isinstance(res, frozenset):
             scored.append((len(res), pkg))
 

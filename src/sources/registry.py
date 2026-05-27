@@ -107,7 +107,7 @@ class SourceRegistry:
         )
 
         valid: list[FetchResult] = []
-        for source, outcome in zip(network, raw):
+        for source, outcome in zip(network, raw, strict=True):
             if isinstance(outcome, SourceNotFound):
                 logger.info("source_miss",
                             package=package, source=source.name, reason="not_found")

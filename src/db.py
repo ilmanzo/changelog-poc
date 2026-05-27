@@ -170,7 +170,7 @@ class Database:
     ) -> int:
         """Bulk upsert. Returns inserted count (conflicts skipped)."""
         rows: list[tuple[Any, ...]] = []
-        for e, emb in zip(entries, embeddings):
+        for e, emb in zip(entries, embeddings, strict=True):
             rows.append((
                 content_uuid(package_name, e.content),
                 package_id,
@@ -378,7 +378,7 @@ class Database:
             await conn.execute("DELETE FROM spec_sections WHERE spec_id = $1", spec_id)
             rows = [
                 (spec_id, s.section_name, s.chunk_index, s.content, emb or None)
-                for s, emb in zip(sections, embeddings)
+                for s, emb in zip(sections, embeddings, strict=True)
             ]
             if rows:
                 await conn.executemany(
