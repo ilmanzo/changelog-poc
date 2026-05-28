@@ -1,0 +1,30 @@
+Based on the changelog data from the last month (since April 28, 2026), several packages have received updates addressing vulnerabilities that could lead to privilege escalation or related security boundary escapes:
+
+### **1. OpenSSH (Multiple Distros)**
+*   **CVE-2026-35385:** Fixed a vulnerability in `scp` where it failed to clear **setuid/setgid** bits from downloaded files when running as root in legacy mode (`-O`) without the preserve modes flag (`-p`).
+*   **CVE-2026-35414:** Addressed mishandling of the `authorized_keys` principals option that could allow inappropriate matching if a principal name contained a comma.
+*   **CVE-2026-35386:** Fixed potential arbitrary shell command execution via shell metacharacters in usernames passed to `ssh(1)`.
+
+### **2. libzypp (openSUSE)**
+*   **CVE-2026-44933:** Prevents configured scripts from **escaping the sigcheck directory**, which could allow a local attacker with specific permissions to influence system-level script execution.
+
+### **3. glibc (Fedora & openSUSE)**
+*   **CVE-2026-5450:** Fixed a **buffer overflow** in `scanf` when using the `%mc` format specifier.
+*   **CVE-2026-5928:** Fixed **memory corruption** in `ungetwc` when operating on byte streams.
+*   **CVE-2026-5435 & CVE-2026-6238:** Addressed buffer overflows and overreads in `ns_sprintrrf`.
+
+### **4. policycoreutils (Fedora)**
+*   **Security Enhancements:** Received several security improvements for the **sandbox** and **seunshare** tools, which are critical for maintaining privilege boundaries in SELinux environments.
+
+### **5. Linux Kernel (kernel-default, openSUSE)**
+*   **CVE-2026-43348, CVE-2026-43349, CVE-2026-43350, CVE-2026-43490:** Multiple kernel vulnerabilities were addressed in the mid-May updates. Kernel vulnerabilities are frequently leveraged for local privilege escalation (LPE).
+
+### **Summary Table**
+
+| Package | Version (Distro) | Date | Primary Security Fix |
+| :--- | :--- | :--- | :--- |
+| **openssh** | 10.2p1 (Ubuntu/Fedora) | Apr 28, 2026 | `scp` setuid/setgid clearing (CVE-2026-35385) |
+| **libzypp** | 17.38.9 (openSUSE) | May 18, 2026 | sigcheck directory escape (CVE-2026-44933) |
+| **glibc** | 2.43.9000-14 (Fedora) | Apr 29, 2026 | `scanf` buffer overflow (CVE-2026-5450) |
+| **policycoreutils**| 3.10-4 (Fedora) | May 24, 2026 | `seunshare` and sandbox improvements |
+| **kernel** | 6.x (openSUSE) | May 14, 2026 | Multiple CVEs (CVE-2026-43349, etc.) |

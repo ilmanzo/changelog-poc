@@ -12,6 +12,14 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 TAPE_DIR="$REPO/docs/vhs"
 
+# Load gemini env (Workspace accounts need GOOGLE_CLOUD_PROJECT for non-interactive use).
+# Parse only KEY=VALUE lines to avoid running bare words from malformed comments.
+if [[ -f "$HOME/.gemini/.env" ]]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && eval "export $line"
+    done < "$HOME/.gemini/.env"
+fi
+
 strip_ansi() { sed 's/\x1b\[[0-9;]*[mKJH]//g; s/\r//g'; }
 
 extract_prompt() {
