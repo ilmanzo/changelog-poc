@@ -27,6 +27,7 @@ MCP-compatible client.
 | [Cross-distro blast radius](Demo-Cross-Distro) | Trace openssl dependents and compare versions across distros |
 | [QA triage -- systemd](Demo-Systemd-Bugs) | Bugs + tests + changelog for systemd in one prompt |
 | [QA triage -- openssl](Demo-Openssl-Bugs) | Bugs + tests + changelog for openssl in one prompt |
+| [Stale test cleanup](Demo-Stale-Tests) | Find tests covering features that were removed upstream |
 
 ## Quick start
 

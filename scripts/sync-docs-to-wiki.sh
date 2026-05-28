@@ -30,6 +30,7 @@ declare -A MAP=(
     [docs/vhs/demo_cross_distro.md]=Demo-Cross-Distro.md
     [docs/vhs/demo_systemd_bugs.md]=Demo-Systemd-Bugs.md
     [docs/vhs/demo_openssl_bugs.md]=Demo-Openssl-Bugs.md
+    [docs/vhs/demo_stale_tests.md]=Demo-Stale-Tests.md
 )
 
 for src in "${!MAP[@]}"; do
