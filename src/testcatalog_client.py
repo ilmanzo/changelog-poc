@@ -23,7 +23,7 @@ import structlog
 
 from .config import settings
 from .http_utils import refresh_session
-from .models import OpenQATest
+from .models import BugReference, OpenQATest
 from .openqa_fetcher import _PKG_RE, _SUMMARY_RE
 from .sanitize import scrub_external
 
@@ -111,4 +111,49 @@ class TestCatalogClient:
             skip += _PAGE_SIZE
 
         _logger.info("testcatalog_fetched", package=package, count=len(out))
+        return out
+
+    async def get_bugs_for_package(self, package: str, limit: int = 10) -> list[BugReference]:
+        """Return Bugzilla bugs mentioning *package* from the TestCatalog analytics API.
+
+        Endpoint: GET /api/v1/analytics/search?q=<pkg>&scope=bugs&size=<limit>.
+        Response envelope: ``{hits: [{_source: {bugId, summary, status, ...}}, ...]}``.
+        """
+        session = await self._get_session()
+        url = f"{self._base}/api/v1/analytics/search"
+        params = {"q": package, "scope": "bugs", "size": str(max(1, min(limit, 100)))}
+        async with session.get(url, params=params) as resp:
+            if resp.status == 404:
+                return []
+            resp.raise_for_status()
+            payload = await resp.json()
+
+        hits = payload.get("hits") or []
+        out: list[BugReference] = []
+        for hit in hits:
+            src = hit.get("_source") or {}
+            bug_id = src.get("bugId")
+            if not isinstance(bug_id, int):
+                continue
+
+            def _clean(field: str, _src: dict = src) -> str | None:
+                raw = _src.get(field)
+                if raw is None or raw == "":
+                    return None
+                return scrub_external(str(raw), package=package, source=_SOURCE_TAG) or None
+
+            out.append(
+                BugReference(
+                    package_name=package,
+                    bug_id=bug_id,
+                    summary=_clean("summary"),
+                    status=_clean("status"),
+                    severity=_clean("severity"),
+                    component=_clean("component"),
+                    assigned_to=_clean("assignedTo"),
+                    resolution=_clean("resolution"),
+                )
+            )
+
+        _logger.info("testcatalog_bugs_fetched", package=package, count=len(out))
         return out

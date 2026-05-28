@@ -202,9 +202,78 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
     return "\n".join(lines)
 
 
+async def _refresh_testcatalog_bugs(package: str, pkg_id: int | None, limit: int) -> None:
+    """Query live TestCatalog bugs analytics, write results to DB, touch manifest.
+
+    On live failure with cached rows present, sets the stale banner so the
+    wrapper prepends a WARNING.
+    """
+    from ..testcatalog_client import TestCatalogClient
+
+    client = TestCatalogClient()
+    live_bugs: list = []
+    api_ok = False
+    try:
+        live_bugs = await client.get_bugs_for_package(package, limit=limit)
+        api_ok = True
+    except Exception as exc:
+        _tlog(testcatalog_bugs_live_failed=str(exc))
+    finally:
+        await client.close()
+
+    if api_ok:
+        if live_bugs:
+            await db.upsert_testcatalog_bugs(live_bugs)
+        new_id = pkg_id or await db.get_package_id(package)
+        if new_id:
+            await db.touch_manifest(new_id, kind="testcatalog_bugs")
+    elif pkg_id is not None:
+        synced_at: datetime | None = await db.get_synced_at(pkg_id, kind="testcatalog_bugs")
+        if synced_at is not None:
+            _mark_stale(synced_at)
+
+
+@_tool_wrapper("find_bugs_in_tests", untrusted_sources=("testcatalog",), category="search")
+async def find_bugs_in_tests(package: str, limit: int = 10) -> str:
+    """Bugzilla bugs filed for *package* from the SUSE TestCatalog analytics API.
+
+    Queries `/api/v1/analytics/search?scope=bugs`; results are cached in the
+    `testcatalog_bugs` table with a 24h TTL. Returns up to *limit* bugs
+    (clamped to 100, the API's max page size).
+    """
+    validate_package_name(package)
+
+    pkg_id = await db.get_package_id(package)
+    is_fresh = pkg_id is not None and await db.is_fresh(
+        pkg_id, settings.cache_ttl_changelog_s, kind="testcatalog_bugs"
+    )
+    if not is_fresh:
+        await _refresh_testcatalog_bugs(package, pkg_id, limit)
+
+    rows = await db.get_testcatalog_bugs(package)
+    _tlog(bugs=len(rows))
+    if not rows:
+        return (
+            f"No Bugzilla bugs found for '{package}' in TestCatalog. "
+            "The analytics index may not include this package, or the API is unreachable."
+        )
+
+    lines = [f"Bugs for {package} ({len(rows)} results):"]
+    for r in rows[:limit]:
+        status = (r["status"] or "?").upper()
+        owner = r["assigned_to"] or "?"
+        component = r["component"] or "?"
+        severity = r["severity"] or "?"
+        summary = (r["summary"] or "").strip()
+        lines.append(f"  [{status:<10}] bsc#{r['bug_id']} -- {owner}")
+        lines.append(f"    [{component}, {severity}] {summary}")
+    return "\n".join(lines)
+
+
 CLI_TOOLS = (
     get_news,
     get_test_coverage,
+    find_bugs_in_tests,
     get_sync_status,
     find_untested_changes,
 )

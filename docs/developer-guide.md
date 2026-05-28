@@ -48,6 +48,7 @@ rpm-mcp/
 │   ├── ingest_core.sh         Pre-ingest top N installed packages
 │   ├── backup.sh              Nightly pg_dump + 7-day retention
 │   ├── register.sh            Add/remove the MCP server in Claude or gemini config
+│   ├── doctor.py              Health check + --fix mode (./rpm-mcp doctor)
 │   └── lint.sh                ruff check/format + mypy wrapper
 ├── tests/                     Unit tests (default) + e2e (testcontainers + gemini-cli)
 ├── packaging/systemd/         User-mode .service / .timer units for worker + backup

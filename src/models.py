@@ -65,6 +65,20 @@ class OpenQATest:
 
 
 @dataclass(frozen=True)
+class BugReference:
+    """A Bugzilla bug fetched from the TestCatalog analytics API."""
+
+    package_name: str
+    bug_id: int
+    summary: str | None
+    status: str | None
+    severity: str | None
+    component: str | None
+    assigned_to: str | None
+    resolution: str | None
+
+
+@dataclass(frozen=True)
 class CVEMention:
     """A CVE reference found inside a changelog entry."""
 

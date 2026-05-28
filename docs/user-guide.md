@@ -198,7 +198,7 @@ Full tool list:
 | Changelog | `analyze_package_diff`, `get_recent_releases`, `get_changes_in_range`, `find_cve`, `list_cves`, `find_bug`, `list_bugs`, `semantic_search`, `fts_search`, `compare_versions`, `sync_package`, `sync_all_distros` |
 | Dependencies | `get_dependencies`, `get_reverse_dependencies`, `get_dependency_changes`, `find_core_packages` |
 | Spec files | `get_spec_details` |
-| News / coverage | `get_news`, `get_test_coverage`, `get_sync_status`, `find_untested_changes` |
+| News / coverage | `get_news`, `get_test_coverage`, `find_bugs_in_tests`, `get_sync_status`, `find_untested_changes` |
 
 ---
 
@@ -232,13 +232,62 @@ pg_restore -d "$DATABASE_URL" ~/rpm-mcp-backup/rpm-mcp-YYYYMMDD-HHMM.pgdump
 
 ---
 
-## 10. Troubleshooting
+## 10. Health check (`./rpm-mcp doctor`)
+
+A single command that confirms every component is wired correctly. Run it whenever something
+looks off, or as part of a CI smoke test.
+
+```bash
+./rpm-mcp doctor          # check-only; exits 1 if any FAIL
+./rpm-mcp doctor --fix    # auto-repair failures with safe remediations
+```
+
+Bundles:
+
+| Bundle | What it verifies |
+|---|---|
+| **Core** | `rpm-mcp-postgres` container is up; DB is reachable; every `migrations/*.sql` is recorded in `schema_migrations` |
+| **Client** | Either Claude Code or gemini-cli has the `rpm` server registered |
+| **Runtime** | fastembed model is cached under `~/.cache/fastembed/`; DB has at least one ingested package |
+| **Network** | TestCatalog and OBS public APIs return a non-5xx response within 5s |
+
+Sample output:
+
+```
+== Core ==
+  [OK]    container              rpm-mcp-postgres up (Up 3 hours)
+  [OK]    db_connect             Postgres reachable
+  [OK]    migrations             6 migrations applied
+== Client ==
+  [OK]    mcp_clients            gemini: rpm registered (cwd: ...)
+== Runtime ==
+  [WARN]  fastembed_model        fastembed model not yet cached
+  [OK]    packages_populated     1542 packages ingested
+== Network ==
+  [OK]    network                TestCatalog: HTTP 404 | OBS: HTTP 200
+
+Summary: 5 OK, 1 WARN, 0 FAIL
+```
+
+`WARN` doesn't fail the run (exit 0); only `FAIL` does (exit 1). With `--fix`, doctor:
+
+- Starts the Postgres container if it was down
+- Runs `./scripts/register.sh add all` if no MCP client is registered
+- Pre-downloads the fastembed model with a dummy embedding call
+- Prints the `scripts/ingest.py` command to run if the DB is empty (does not auto-execute)
+
+---
+
+## 11. Troubleshooting
 
 ### "MCP issues detected" in gemini-cli or Claude Code
 
-The server failed to start. Most likely cause: Postgres isn't running.
+First run: `./rpm-mcp doctor` -- it tells you exactly which component failed. The most common
+cause is Postgres not running:
 
 ```bash
+./rpm-mcp doctor --fix                    # one-shot repair
+# or manually:
 ./rpm-mcp status                          # check the container
 ./rpm-mcp start                           # boot it
 ```
@@ -295,7 +344,7 @@ Then restart the server.
 
 ---
 
-## 11. Architecture cheat sheet
+## 12. Architecture cheat sheet
 
 ```
   MCP client (Claude Code / gemini-cli / OpenCode / Cursor / ...)
@@ -330,7 +379,7 @@ For deeper dives, see `docs/architecture.md` (component diagrams) and `docs/THRE
 
 ---
 
-## 12. Next steps
+## 13. Next steps
 
 - Read the [Development Diary](dev-diary.md) for the project's design history.
 - Read the [Architecture doc](architecture.md) for the schema and source registry details.

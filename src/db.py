@@ -23,7 +23,7 @@ from pgvector.asyncpg import register_vector
 
 from .config import settings
 from .errors import DBError
-from .models import ChangelogEntry, NewsItem, OpenQATest, SpecSection
+from .models import BugReference, ChangelogEntry, NewsItem, OpenQATest, SpecSection
 
 _logger = structlog.get_logger("rpm-mcp.db")
 
@@ -585,6 +585,52 @@ class Database:
                 """,
                 package_name,
                 source,
+            )
+
+    async def upsert_testcatalog_bugs(self, bugs: Iterable[BugReference]) -> int:
+        """Bulk upsert Bugzilla bugs fetched from the TestCatalog analytics API.
+
+        Implicitly calls ``upsert_package`` for every referenced ``package_name``
+        so callers don't have to.
+        """
+        rows: list[tuple[Any, ...]] = []
+        for b in bugs:
+            pkg_id = await self.upsert_package(b.package_name)
+            rows.append(
+                (pkg_id, b.bug_id, b.summary, b.status, b.severity, b.component, b.assigned_to, b.resolution)
+            )
+        if not rows:
+            return 0
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                """
+                INSERT INTO testcatalog_bugs
+                    (package_id, bug_id, summary, status, severity, component, assigned_to, resolution)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (package_id, bug_id) DO UPDATE SET
+                    summary     = EXCLUDED.summary,
+                    status      = EXCLUDED.status,
+                    severity    = EXCLUDED.severity,
+                    component   = EXCLUDED.component,
+                    assigned_to = EXCLUDED.assigned_to,
+                    resolution  = EXCLUDED.resolution
+                """,
+                rows,
+            )
+        return len(rows)
+
+    async def get_testcatalog_bugs(self, package_name: str) -> list[asyncpg.Record]:
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(
+                """
+                SELECT b.bug_id, b.summary, b.status, b.severity,
+                       b.component, b.assigned_to, b.resolution
+                FROM testcatalog_bugs b
+                JOIN packages p ON p.id = b.package_id
+                WHERE p.name = $1
+                ORDER BY b.bug_id DESC
+                """,
+                package_name,
             )
 
     async def find_untested_packages(

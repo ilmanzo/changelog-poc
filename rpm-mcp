@@ -10,6 +10,7 @@
 #   ./rpm-mcp dev                  start MCP Inspector UI at http://localhost:5173
 #   ./rpm-mcp register {claude|gemini|all}   register this server with an MCP client
 #   ./rpm-mcp unregister {claude|gemini|all} remove the registration
+#   ./rpm-mcp doctor [--fix]       health check (container, DB, migrations, client, network)
 #
 # Anything else is passed through to the Python CLI dispatcher, e.g.:
 #   ./rpm-mcp find-cve CVE-2024-1234
@@ -78,6 +79,7 @@ case "${1:-}" in
     dev)        infra_dev ;;
     register)   shift; exec "$DIR/scripts/register.sh" add "${1:-all}" ;;
     unregister) shift; exec "$DIR/scripts/register.sh" remove "${1:-all}" ;;
+    doctor)     shift; exec uv run python scripts/doctor.py "$@" ;;
     "")
         # No args -- assume MCP stdio server (same as `serve` subcommand)
         exec uv run python mcp_server.py
