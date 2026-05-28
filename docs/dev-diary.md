@@ -231,6 +231,12 @@ policies, two session lifetimes. Consolidated to a single aiohttp stack with a s
 security, and asyncio patterns. First run: 45 issues. All cleared in two commits -- 28 auto-fixed,
 17 manual. Imports standardised to relative throughout `src/`.
 
+### Demo
+
+![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
+
+*Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
+
 ### Day 3, end of day: configuration and documentation
 
 **`.env` file support.** With 25 environment variables the setup story was getting unwieldy.
@@ -249,10 +255,6 @@ wiki at [github.com/ilmanzo/changelog-poc/wiki](https://github.com/ilmanzo/chang
 with animated GIF demos embedded directly in the page.
 
 ### Demo
-
-![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
-
-*Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
 
 ![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
 
