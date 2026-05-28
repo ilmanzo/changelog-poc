@@ -6,31 +6,43 @@ MCP-compatible client.
 
 ## Pages
 
-- [Development Diary](Development-Diary) -- sprint journal, architecture, design decisions, demos
-- [Architecture](https://github.com/ilmanzo/changelog-poc/blob/main/docs/architecture.md) -- full technical reference (in repo)
-- [Schema](https://github.com/ilmanzo/changelog-poc/blob/main/docs/schema.md) -- PostgreSQL schema reference
-- [Threat Model](https://github.com/ilmanzo/changelog-poc/blob/main/docs/THREAT_MODEL.md) -- security analysis
+| Page | What's in it |
+|---|---|
+| [User Guide](User-Guide) | Deploy, configure, ingest, query, troubleshoot |
+| [Developer Guide](Developer-Guide) | Code structure, key abstractions, design patterns, how to extend |
+| [Architecture](Architecture) | Component diagrams, source registry, env vars |
+| [Schema](Schema) | PostgreSQL tables, indexes, content-addressed UUIDs |
+| [Threat Model](Threat-Model) | Trust boundaries, prompt-injection defences, accepted risks |
+| [Development Diary](Development-Diary) | Sprint journal with design decisions and demos |
+| [Changelog](Changelog) | CalVer release history |
 
 ## Quick start
 
 ```bash
-# Start Postgres
-./infra/infra.sh start
-
-# Install deps and run
+git clone https://github.com/ilmanzo/changelog-poc.git
+cd changelog-poc
 uv sync
-uv run mcp_server.py
 
-# Configure gemini-cli (~/.gemini/settings.json)
-{
-  "mcpServers": {
-    "rpm": {
-      "command": "uv",
-      "args": ["run", "mcp_server.py"],
-      "cwd": "/path/to/rpm-mcp"
-    }
-  }
-}
+# 1. Start the Postgres container
+./rpm-mcp start
+
+# 2. Register with your MCP client (Claude Code, gemini-cli, or both)
+./rpm-mcp register gemini       # or: claude   or: all
+
+# 3. Populate the DB with a few packages
+uv run scripts/ingest.py vim curl openssl
 ```
 
-Copy `.env.example` to `.env` and set `DATABASE_URL` and optionally `GITHUB_TOKEN`.
+That's it -- launch your MCP client and start asking questions.
+
+Then ask your AI assistant questions like:
+
+> *"What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
+> *"openssl was updated last week. Which packages depend on it, and did their changelogs mention it?"*
+> *"Show me packages with security fixes in the last 30 days that have no openQA coverage."*
+
+See the [User Guide](User-Guide) for the full deployment + usage flow.
+
+---
+
+_Source repo: <https://github.com/ilmanzo/changelog-poc>_

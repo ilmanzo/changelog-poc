@@ -1,7 +1,11 @@
-name: Sync wiki/ to GitHub Wiki
+name: Sync docs and wiki/ to GitHub Wiki
 
-# Push contents of wiki/ to https://github.com/ilmanzo/changelog-poc.wiki.git
-# whenever wiki/* changes on main. Manual dispatch is also supported.
+# Publishes docs/*.md + CHANGELOG.md + wiki/Home.md to
+# https://github.com/ilmanzo/changelog-poc.wiki.git on every push to main.
+#
+# Pre-sync transforms (scripts/sync-docs-to-wiki.sh):
+#   - Prepends an "auto-generated" notice with link back to the source file
+#   - Rewrites cross-doc markdown links to wiki page names (so they don't 404)
 #
 # Prerequisite: the GitHub Wiki must be enabled in the repo settings AND
 # initialised (at least one page created via the web UI), otherwise the
@@ -11,7 +15,10 @@ on:
   push:
     branches: [main]
     paths:
+      - 'docs/**.md'
       - 'wiki/**'
+      - 'CHANGELOG.md'
+      - 'scripts/sync-docs-to-wiki.sh'
       - '.github/workflows/sync-wiki.yml'
   workflow_dispatch:
 
@@ -25,8 +32,10 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Publish wiki/ to GitHub Wiki
+      - name: Build wiki staging dir
+        run: bash scripts/sync-docs-to-wiki.sh "$RUNNER_TEMP/wiki-build"
+
+      - name: Publish to GitHub Wiki
         uses: Andrew-Chen-Wang/github-wiki-action@v4
         with:
-          path: wiki
-          # Default behaviour: commit message includes the source commit SHA.
+          path: ${{ runner.temp }}/wiki-build

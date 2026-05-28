@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # rpm-mcp -- unified entry point.
 #
-# Infra subcommands (manage the Postgres container the server depends on):
-#   ./rpm-mcp start    boot Postgres (infra only; MCP client spawns the server itself)
-#   ./rpm-mcp stop     stop Postgres
-#   ./rpm-mcp status   container state + DB connectivity + row counts
-#   ./rpm-mcp logs     tail Postgres container logs
-#   ./rpm-mcp psql     open an interactive psql shell
-#   ./rpm-mcp dev      start MCP Inspector UI at http://localhost:5173
+# Infra + setup subcommands:
+#   ./rpm-mcp start                boot Postgres (infra only; MCP client spawns the server itself)
+#   ./rpm-mcp stop                 stop Postgres
+#   ./rpm-mcp status               container state + DB connectivity + row counts
+#   ./rpm-mcp logs                 tail Postgres container logs
+#   ./rpm-mcp psql                 open an interactive psql shell
+#   ./rpm-mcp dev                  start MCP Inspector UI at http://localhost:5173
+#   ./rpm-mcp register {claude|gemini|all}   register this server with an MCP client
+#   ./rpm-mcp unregister {claude|gemini|all} remove the registration
 #
 # Anything else is passed through to the Python CLI dispatcher, e.g.:
 #   ./rpm-mcp find-cve CVE-2024-1234
@@ -68,12 +70,14 @@ infra_dev() {
 }
 
 case "${1:-}" in
-    start)  infra_start ;;
-    stop)   infra_stop ;;
-    status) infra_status ;;
-    logs)   "$DIR/infra/infra.sh" logs ;;
-    psql)   "$DIR/infra/infra.sh" psql ;;
-    dev)    infra_dev ;;
+    start)      infra_start ;;
+    stop)       infra_stop ;;
+    status)     infra_status ;;
+    logs)       "$DIR/infra/infra.sh" logs ;;
+    psql)       "$DIR/infra/infra.sh" psql ;;
+    dev)        infra_dev ;;
+    register)   shift; exec "$DIR/scripts/register.sh" add "${1:-all}" ;;
+    unregister) shift; exec "$DIR/scripts/register.sh" remove "${1:-all}" ;;
     "")
         # No args -- assume MCP stdio server (same as `serve` subcommand)
         exec uv run python mcp_server.py

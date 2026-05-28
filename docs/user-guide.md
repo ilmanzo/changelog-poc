@@ -86,21 +86,20 @@ The MCP server itself is **not** pre-started -- it is spawned automatically by y
 
 ## 5. Register with your MCP client
 
-### Claude Code
+### One-liner (recommended)
 
 ```bash
-./scripts/register.sh add claude
+./rpm-mcp register claude       # register with Claude Code
+./rpm-mcp register gemini       # register with gemini-cli
+./rpm-mcp register all          # both at once
 ```
 
-This adds an entry to `~/.config/claude/mcp.json` pointing at this checkout.
+This delegates to `scripts/register.sh`, which auto-detects the repo root and writes the
+correct paths. To remove a registration: `./rpm-mcp unregister {claude|gemini|all}`.
 
-### gemini-cli
+### Manual gemini-cli setup
 
-```bash
-./scripts/register.sh add gemini
-```
-
-Or manually edit `~/.gemini/settings.json`:
+If you'd rather edit `~/.gemini/settings.json` yourself:
 
 ```json
 {

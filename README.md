@@ -19,17 +19,21 @@ MCP server for querying openSUSE/Fedora RPM changelogs, specs, CVEs, news, and o
 ## Quick Start
 
 ```bash
-# 1. Start PostgreSQL + pgvector
-./rpm-mcp start
-
-# 2. Install dependencies
+# 1. Install dependencies
 uv sync
 
-# 3. Run the MCP server (stdio transport)
-./rpm-mcp serve
+# 2. Start PostgreSQL + pgvector
+./rpm-mcp start
+
+# 3. Register the server with your MCP client (Claude Code, gemini-cli, or both)
+./rpm-mcp register gemini       # or: claude   or: all
+
+# 4. Populate the DB
+uv run scripts/ingest.py vim curl openssl
 ```
 
-Migrations run automatically on startup. No manual DB setup needed.
+Migrations run automatically on startup. Your MCP client spawns the server itself via stdio --
+no need to keep it running manually. See the [User Guide](docs/user-guide.md) for the full flow.
 
 ## Configuration
 
