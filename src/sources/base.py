@@ -5,16 +5,17 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
+from ..errors import RPMMcpError
 from ..models import ChangelogEntry
 
 
-class SourceNotFound(Exception):
+class SourceNotFound(RPMMcpError):
     """Source definitively does not carry this package (HTTP 404 / not installed).
     Caller should move on to the next source rather than treating as an error.
     """
 
 
-class SourceError(Exception):
+class SourceError(RPMMcpError):
     """Source temporarily unavailable (5xx, connection timeout). Raised after
     all tenacity retries are exhausted. Caller should log a warning and skip.
     """

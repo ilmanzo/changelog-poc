@@ -22,6 +22,7 @@ import structlog
 from pgvector.asyncpg import register_vector
 
 from .config import settings
+from .errors import DBError
 from .models import ChangelogEntry, NewsItem, OpenQATest, SpecSection
 
 _logger = structlog.get_logger("rpm-mcp.db")
@@ -59,25 +60,49 @@ class Database:
         self._dsn = dsn or settings.database_url
         self._pool: asyncpg.Pool | None = None
 
-    async def connect(self) -> None:
+    async def connect(self, *, retries: int = 5, backoff: float = 2.0) -> None:
+        """Connect to Postgres, retrying on transient connection errors.
+
+        Retries up to *retries* times with exponential backoff (cap 30s).
+        Allows the MCP server to start before Postgres is fully ready.
+        """
         if self._pool is not None:
             return
-        # Bootstrap: ensure the pgvector extension exists BEFORE the pool's
-        # init callback tries to register the vector codec on each new conn.
-        bootstrap = await asyncpg.connect(self._dsn)
-        try:
-            await bootstrap.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            await bootstrap.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-        finally:
-            await bootstrap.close()
-        self._pool = await asyncpg.create_pool(
-            dsn=self._dsn,
-            min_size=settings.pg_pool_min_size,
-            max_size=settings.pg_pool_max_size,
-            init=self._init_conn,
-        )
-        await self.apply_migrations()
-        _logger.info("db_connected", dsn=self._scrubbed_dsn())
+        import asyncio
+
+        last_exc: Exception | None = None
+        for attempt in range(1, retries + 1):
+            try:
+                # Bootstrap: ensure pgvector extension exists BEFORE the pool's
+                # init callback tries to register the vector codec on each conn.
+                bootstrap = await asyncpg.connect(self._dsn)
+                try:
+                    await bootstrap.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                    await bootstrap.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                finally:
+                    await bootstrap.close()
+                self._pool = await asyncpg.create_pool(
+                    dsn=self._dsn,
+                    min_size=settings.pg_pool_min_size,
+                    max_size=settings.pg_pool_max_size,
+                    init=self._init_conn,
+                )
+                await self.apply_migrations()
+                _logger.info("db_connected", dsn=self._scrubbed_dsn(), attempt=attempt)
+                return
+            except (OSError, asyncpg.PostgresConnectionError) as exc:
+                last_exc = exc
+                wait = min(backoff**attempt, 30.0)
+                _logger.warning(
+                    "db_connect_retry",
+                    attempt=attempt,
+                    retries=retries,
+                    wait_s=round(wait, 1),
+                    error=str(exc),
+                )
+                if attempt < retries:
+                    await asyncio.sleep(wait)
+        raise DBError(f"Could not connect to Postgres after {retries} attempts: {last_exc}")
 
     async def close(self) -> None:
         if self._pool is not None:
@@ -86,12 +111,15 @@ class Database:
 
     @staticmethod
     async def _init_conn(conn: asyncpg.Connection) -> None:
+        # Must run on every new connection from the pool, not just at startup.
+        # pgvector stores vectors as binary; without the codec the driver returns
+        # raw bytes instead of lists of floats, silently breaking semantic search.
         await register_vector(conn)
 
     @property
     def pool(self) -> asyncpg.Pool:
         if self._pool is None:
-            raise RuntimeError("Database.connect() not called")
+            raise DBError("Database.connect() not called -- is PostgreSQL running?")
         return self._pool
 
     def _scrubbed_dsn(self) -> str:
@@ -108,15 +136,37 @@ class Database:
         return self._dsn
 
     async def apply_migrations(self) -> None:
-        """Apply every .sql file in migrations/ in lexicographic order."""
+        """Apply unapplied .sql files from migrations/ in lexicographic order.
+
+        Tracks applied versions in ``schema_migrations(version, applied_at)``.
+        Each file is applied at most once; re-running is safe (idempotent bootstrap).
+        The tracking table itself is created inline here to avoid a bootstrap paradox.
+        """
         if not MIGRATIONS_DIR.exists():
             _logger.warning("no_migrations_dir", path=str(MIGRATIONS_DIR))
             return
-        files = sorted(MIGRATIONS_DIR.glob("*.sql"))
         async with self.pool.acquire() as conn:
-            for f in files:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version     TEXT PRIMARY KEY,
+                    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            applied: set[str] = {
+                r["version"] for r in await conn.fetch("SELECT version FROM schema_migrations")
+            }
+            for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
+                if f.name in applied:
+                    _logger.debug("migration_skipped", file=f.name)
+                    continue
                 _logger.info("applying_migration", file=f.name)
                 await conn.execute(f.read_text())
+                await conn.execute(
+                    "INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT DO NOTHING",
+                    f.name,
+                )
 
     # ------------------------------------------------------------------
     # packages
@@ -176,6 +226,7 @@ class Database:
         source_name: str,
     ) -> int:
         """Bulk upsert. Returns inserted count (conflicts skipped)."""
+        active_model = settings.embedding_model or "BAAI/bge-small-en-v1.5"
         rows: list[tuple[Any, ...]] = []
         for e, emb in zip(entries, embeddings, strict=True):
             rows.append(
@@ -188,6 +239,7 @@ class Database:
                     e.content,
                     source_name,
                     emb or None,
+                    active_model,
                 )
             )
         if not rows:
@@ -196,8 +248,9 @@ class Database:
             await conn.executemany(
                 """
                 INSERT INTO changelog_entries
-                    (id, package_id, version, author, entry_date, content, source_name, embedding)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    (id, package_id, version, author, entry_date, content,
+                     source_name, embedding, embedding_model)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 rows,
@@ -381,18 +434,19 @@ class Database:
         sections: list[SpecSection],
         embeddings: list[list[float]],
     ) -> None:
+        active_model = settings.embedding_model or "BAAI/bge-small-en-v1.5"
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute("DELETE FROM spec_sections WHERE spec_id = $1", spec_id)
             rows = [
-                (spec_id, s.section_name, s.chunk_index, s.content, emb or None)
+                (spec_id, s.section_name, s.chunk_index, s.content, emb or None, active_model)
                 for s, emb in zip(sections, embeddings, strict=True)
             ]
             if rows:
                 await conn.executemany(
                     """
                         INSERT INTO spec_sections
-                            (spec_id, section_name, chunk_index, content, embedding)
-                        VALUES ($1, $2, $3, $4, $5)
+                            (spec_id, section_name, chunk_index, content, embedding, embedding_model)
+                        VALUES ($1, $2, $3, $4, $5, $6)
                         """,
                     rows,
                 )
@@ -470,39 +524,67 @@ class Database:
                 limit,
             )
 
-    async def upsert_openqa(self, tests: Iterable[OpenQATest]) -> int:
-        """Bulk upsert openQA test rows. Implicitly calls ``upsert_package``
-        for every referenced ``package_name`` so callers don't have to.
+    async def upsert_openqa(
+        self,
+        tests: Iterable[OpenQATest],
+        source: str = "openqa",
+    ) -> int:
+        """Bulk upsert openQA/TestCatalog test rows.
+
+        *source* distinguishes data origin: ``'openqa'`` (local .pm scan) vs
+        ``'testcatalog'`` (live API). Implicitly calls ``upsert_package`` for
+        every referenced ``package_name`` so callers don't have to.
         """
         rows: list[tuple[Any, ...]] = []
         for t in tests:
             pkg_id = await self.upsert_package(t.package_name)
-            rows.append((pkg_id, t.test_path, t.summary))
+            rows.append((pkg_id, t.test_path, t.summary, source))
         if not rows:
             return 0
         async with self.pool.acquire() as conn:
             await conn.executemany(
                 """
-                INSERT INTO openqa_tests (package_id, test_path, summary)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (package_id, test_path) DO UPDATE SET
+                INSERT INTO openqa_tests (package_id, test_path, summary, source)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (package_id, test_path, source) DO UPDATE SET
                     summary = EXCLUDED.summary
                 """,
                 rows,
             )
         return len(rows)
 
-    async def get_openqa_tests(self, package_name: str) -> list[asyncpg.Record]:
+    async def get_openqa_tests(
+        self,
+        package_name: str,
+        source: str | None = None,
+    ) -> list[asyncpg.Record]:
+        """Return test rows for *package_name*.
+
+        When *source* is given (e.g. ``'openqa'`` or ``'testcatalog'``), only
+        rows from that source are returned. Pass ``None`` to get all sources.
+        """
         async with self.pool.acquire() as conn:
+            if source is None:
+                return await conn.fetch(
+                    """
+                    SELECT t.test_path, t.summary, t.source
+                    FROM openqa_tests t
+                    JOIN packages p ON p.id = t.package_id
+                    WHERE p.name = $1
+                    ORDER BY t.source, t.test_path
+                    """,
+                    package_name,
+                )
             return await conn.fetch(
                 """
-                SELECT t.test_path, t.summary
+                SELECT t.test_path, t.summary, t.source
                 FROM openqa_tests t
                 JOIN packages p ON p.id = t.package_id
-                WHERE p.name = $1
+                WHERE p.name = $1 AND t.source = $2
                 ORDER BY t.test_path
                 """,
                 package_name,
+                source,
             )
 
     async def find_untested_packages(
@@ -510,7 +592,7 @@ class Database:
         days: int = 90,
         limit: int = 5,
     ) -> list[asyncpg.Record]:
-        """Packages with recent changelog entries but no openqa_tests rows."""
+        """Packages with recent changelog entries but no openqa_tests rows (any source)."""
         async with self.pool.acquire() as conn:
             return await conn.fetch(
                 """

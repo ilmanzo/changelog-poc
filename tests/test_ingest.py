@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.errors import ValidationError
 from src.ingest import IngestService, IngestStatus, validate_package_name
 from src.models import ChangelogEntry
 from src.sources.base import FetchResult
@@ -59,7 +60,7 @@ def test_validate_package_name_valid(name: str) -> None:
     "",
 ])
 def test_validate_package_name_invalid(name: str) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValidationError):
         validate_package_name(name)
 
 

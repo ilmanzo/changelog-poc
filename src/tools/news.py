@@ -1,18 +1,20 @@
-"""News / openQA / sync-status tools."""
+"""News / test-coverage / sync-status tools."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from ..config import settings
 from ..ingest import validate_package_name
 from ..runtime import db
 from ._helpers import _format_date
-from ._wrap import _tlog, _tool_wrapper
+from ._wrap import _mark_stale, _tlog, _tool_wrapper
 
 
-@_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"))
+@_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"), category="fast")
 async def get_news(package: str | None = None, limit: int = 10) -> str:
     """Recent Fedora Bodhi + openSUSE news items, optionally scoped to *package*.
 
@@ -38,25 +40,90 @@ async def get_news(package: str | None = None, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-@_tool_wrapper("get_openqa_tests", untrusted_sources=("openqa",))
-async def get_openqa_tests(package: str) -> str:
-    """List openQA tests that exercise *package*."""
+async def _refresh_testcatalog(package: str, pkg_id: int | None) -> None:
+    """Query live TestCatalog API, write results to DB, touch manifest.
+
+    When the live query fails and stale cached rows exist, sets the stale
+    banner via ``_mark_stale`` so the tool wrapper prepends a WARNING.
+    """
+    from ..testcatalog_client import TestCatalogClient
+
+    client = TestCatalogClient()
+    live_tests = []
+    api_ok = False
+    try:
+        live_tests = await client.get_tests_for_package(package)
+        api_ok = True
+    except Exception as exc:
+        _tlog(testcatalog_live_failed=str(exc))
+    finally:
+        await client.close()
+
+    if api_ok:
+        if live_tests:
+            await db.upsert_openqa(live_tests, source="testcatalog")
+        # always touch manifest so we don't hammer the API on empty results
+        new_id = pkg_id or await db.get_package_id(package)
+        if new_id:
+            await db.touch_manifest(new_id, kind="testcatalog")
+    elif pkg_id is not None:
+        # live query failed -- check if stale cache exists to show banner
+        synced_at: datetime | None = await db.get_synced_at(pkg_id, kind="testcatalog")
+        if synced_at is not None:
+            _mark_stale(synced_at)
+
+
+@_tool_wrapper("get_test_coverage", untrusted_sources=("openqa", "testcatalog"), category="search")
+async def get_test_coverage(package: str, source: str | None = None) -> str:
+    """List test modules that exercise *package* from all available sources.
+
+    *source* filters results: ``'openqa'`` (local repo scan, DB only),
+    ``'testcatalog'`` (live API with 24h DB cache), or ``None`` for both.
+
+    TestCatalog is queried live when the cache is stale; cached rows are served
+    with a WARNING banner if the live API is unreachable.
+    """
     validate_package_name(package)
-    rows = await db.get_openqa_tests(package)
-    _tlog(tests=len(rows))
-    if not rows:
-        return (
-            f"No openQA tests recorded for '{package}'. "
-            "Run the openQA ingest in the worker if the local DB is empty."
+
+    want_openqa = source is None or source == "openqa"
+    want_testcatalog = source is None or source == "testcatalog"
+
+    # openQA: always served from DB (populated by worker --openqa / --test-repo)
+    rows_openqa = await db.get_openqa_tests(package, source="openqa") if want_openqa else []
+
+    # TestCatalog: TTL-gated live query with DB cache fallback
+    if want_testcatalog:
+        pkg_id = await db.get_package_id(package)
+        is_fresh = pkg_id is not None and await db.is_fresh(
+            pkg_id, settings.cache_ttl_changelog_s, kind="testcatalog"
         )
-    lines = [f"openQA tests for {package} ({len(rows)}):"]
-    for r in rows:
+        if not is_fresh:
+            await _refresh_testcatalog(package, pkg_id)
+        rows_testcatalog = await db.get_openqa_tests(package, source="testcatalog")
+    else:
+        rows_testcatalog = []
+
+    total = len(rows_openqa) + len(rows_testcatalog)
+    _tlog(openqa=len(rows_openqa), testcatalog=len(rows_testcatalog))
+
+    if not rows_openqa and not rows_testcatalog:
+        scope = f" (source={source})" if source else ""
+        return (
+            f"No test coverage recorded for '{package}'{scope}. "
+            "Run the worker (--openqa / --test-repo / --testcatalog) to populate the DB."
+        )
+
+    lines = [f"Test coverage for {package} ({total} total):"]
+    for r in rows_openqa:
         summary = f" -- {r['summary']}" if r["summary"] else ""
-        lines.append(f"  {r['test_path']}{summary}")
+        lines.append(f"  [openqa]      {r['test_path']}{summary}")
+    for r in rows_testcatalog:
+        summary = f" -- {r['summary']}" if r["summary"] else ""
+        lines.append(f"  [testcatalog] {r['test_path']}{summary}")
     return "\n".join(lines)
 
 
-@_tool_wrapper("get_sync_status")
+@_tool_wrapper("get_sync_status", category="fast")
 async def get_sync_status(
     package: str | None = None,
     threshold_days: int = 7,
@@ -108,10 +175,11 @@ def _append_status_block(
     lines.append("")
 
 
-@_tool_wrapper("find_untested_changes")
+@_tool_wrapper("find_untested_changes", category="fast")
 async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
-    """Find packages with recent changelog activity but no recorded openQA tests.
+    """Find packages with recent changelog activity but no recorded test coverage.
 
+    Checks both openQA (local repo scan) and TestCatalog sources.
     Useful for identifying coverage gaps after upstream bumps.
     """
     rows = await db.find_untested_packages(days=days, limit=limit)
@@ -119,9 +187,12 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
     if not rows:
         return (
             f"All packages with changelog entries in the last {days} days "
-            "have at least one recorded openQA test."
+            "have at least one recorded test (openQA or TestCatalog)."
         )
-    lines = [f"Packages with changes in the last {days}d but no openQA test coverage ({len(rows)}):"]
+    lines = [
+        f"Packages with changes in the last {days}d but no test coverage"
+        f" (openQA or TestCatalog) ({len(rows)}):"
+    ]
     for r in rows:
         lines.append(
             f"\n  {r['name']}"
@@ -133,7 +204,7 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
 
 CLI_TOOLS = (
     get_news,
-    get_openqa_tests,
+    get_test_coverage,
     get_sync_status,
     find_untested_changes,
 )

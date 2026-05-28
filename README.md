@@ -11,16 +11,14 @@ MCP server for querying openSUSE/Fedora RPM changelogs, specs, CVEs, news, and o
 ## Quick Start
 
 ```bash
-cd rpm-mcp
-
 # 1. Start PostgreSQL + pgvector
-infra/infra.sh start
+./rpm-mcp start
 
 # 2. Install dependencies
 uv sync
 
 # 3. Run the MCP server (stdio transport)
-uv run mcp_server.py
+./rpm-mcp serve
 ```
 
 Migrations run automatically on startup. No manual DB setup needed.

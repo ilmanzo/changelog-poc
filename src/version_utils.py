@@ -9,6 +9,8 @@ import dateparser
 
 from .models import ChangelogEntry
 
+# Strips build/patch suffix starting at '+' or 'p':
+#   "1.2.3+git20240101" -> "1.2.3"   "9.2p1" -> "9.2"
 CLEAN_RE = re.compile(r"[\+p].*$")
 HAS_DIGIT_RE = re.compile(r"\d")
 CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,7}$", re.IGNORECASE)

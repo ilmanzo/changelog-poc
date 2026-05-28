@@ -41,7 +41,7 @@ from ._wrap import _tlog, _tool_wrapper
 # ---------------------------------------------------------------------------
 # Tool bodies
 # ---------------------------------------------------------------------------
-@_tool_wrapper("analyze_package_diff", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("analyze_package_diff", untrusted_sources=("rpm", "obs", "gitea"), category="search")
 async def analyze_package_diff(
     package: str,
     version_start: str,
@@ -87,7 +87,7 @@ async def analyze_package_diff(
     return "\n".join(lines)
 
 
-@_tool_wrapper("get_recent_releases", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("get_recent_releases", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def get_recent_releases(package: str, n: int = 3, refresh: bool = False) -> str:
     """Last *n* distinct releases of *package*, grouped by version."""
     validate_package_name(package)
@@ -106,7 +106,7 @@ async def get_recent_releases(package: str, n: int = 3, refresh: bool = False) -
     return "\n".join(lines)
 
 
-@_tool_wrapper("get_changes_in_range", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("get_changes_in_range", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def get_changes_in_range(
     package: str, since: str, until: str | None = None, refresh: bool = False
 ) -> str:
@@ -144,7 +144,7 @@ async def get_changes_in_range(
     return "\n".join(lines)
 
 
-@_tool_wrapper("find_cve", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("find_cve", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def find_cve(cve_id: str, package: str | None = None) -> str:
     """Case-insensitive substring search for a CVE ID across cached changelogs."""
     try:
@@ -164,7 +164,7 @@ async def find_cve(cve_id: str, package: str | None = None) -> str:
     return _format_match_rows(matches, f"Found {len(matches)} entries mentioning {cve_id}:")
 
 
-@_tool_wrapper("list_cves", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("list_cves", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def list_cves(package: str, since: str | None = None) -> str:
     """List all CVE IDs mentioned in *package*'s changelog.
 
@@ -185,7 +185,7 @@ async def list_cves(package: str, since: str | None = None) -> str:
     return _format_listing_rows(rows, header, CVE_CONTENT_RE)
 
 
-@_tool_wrapper("find_bug", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("find_bug", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def find_bug(bug_id: str, package: str | None = None) -> str:
     """Case-insensitive search for a SUSE/openSUSE bugzilla reference across cached changelogs.
 
@@ -208,7 +208,7 @@ async def find_bug(bug_id: str, package: str | None = None) -> str:
     return _format_match_rows(matches, f"Found {len(matches)} entries mentioning {bug_id}:")
 
 
-@_tool_wrapper("list_bugs", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("list_bugs", untrusted_sources=("rpm", "obs", "gitea"), category="fast")
 async def list_bugs(package: str, since: str | None = None) -> str:
     """List all SUSE/openSUSE bugzilla references (bsc#, boo#, bnc#) in *package*'s changelog.
 
@@ -229,7 +229,7 @@ async def list_bugs(package: str, since: str | None = None) -> str:
     return _format_listing_rows(rows, header, BSC_CONTENT_RE)
 
 
-@_tool_wrapper("semantic_search", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("semantic_search", untrusted_sources=("rpm", "obs", "gitea"), category="search")
 async def semantic_search(query: str, limit: int = 5) -> str:
     """Natural-language search across indexed changelogs via pgvector cosine distance."""
     emb = await embedder.embed_one(query)
@@ -246,7 +246,7 @@ async def semantic_search(query: str, limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-@_tool_wrapper("fts_search", untrusted_sources=("rpm", "obs", "gitea"))
+@_tool_wrapper("fts_search", untrusted_sources=("rpm", "obs", "gitea"), category="search")
 async def fts_search(query: str, limit: int = 10, since: str | None = None) -> str:
     """Keyword / full-text search via tsvector over changelog content.
 
@@ -270,7 +270,7 @@ async def fts_search(query: str, limit: int = 10, since: str | None = None) -> s
     return "\n".join(lines)
 
 
-@_tool_wrapper("compare_versions")
+@_tool_wrapper("compare_versions", category="fast")
 async def compare_versions(package: str, refresh: bool = False) -> str:
     """Compare latest changelog versions of *package* across distros (openSUSE, Fedora, Ubuntu).
 

@@ -18,6 +18,7 @@ import structlog
 
 from . import embedder
 from .db import Database
+from .errors import ValidationError
 from .sources import SourceRegistry
 from .sources.base import SourceError, SourceNotFound
 from .sources.url_router import parse_upstream_url
@@ -27,7 +28,7 @@ _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.+]+$")
 
 def validate_package_name(package: str) -> None:
     if not _PACKAGE_NAME_RE.match(package):
-        raise ValueError(f"Invalid package name: {package!r}")
+        raise ValidationError(f"Invalid package name: {package!r}")
 
 
 class IngestStatus(StrEnum):
@@ -123,7 +124,7 @@ class IngestService:
 
         try:
             validate_package_name(package)
-        except ValueError as exc:
+        except ValidationError as exc:
             log.warning("invalid_package", error=str(exc))
             return IngestResult(
                 package=package,

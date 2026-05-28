@@ -27,8 +27,6 @@ class HttpSource(ChangelogSource):
       5xx -> retried then SourceError
     """
 
-    is_local = False
-
     # Subclasses can map specific 4xx statuses to custom error messages
     # (e.g. GitHubSource: 403 -> "GitHub API rate limit exceeded").
     _STATUS_ERROR_MESSAGES: ClassVar[dict[int, str]] = {}

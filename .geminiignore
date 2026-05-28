@@ -1,0 +1,10 @@
+# Mirror of .gitignore entries that matter for gemini-cli's workspace scanner.
+# pg_data is mode 700 (Postgres container user) and would trigger EACCES warnings.
+
+infra/pg_data/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+.coverage

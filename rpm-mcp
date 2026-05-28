@@ -1,5 +1,85 @@
 #!/usr/bin/env bash
+# rpm-mcp -- unified entry point.
+#
+# Infra subcommands (manage the Postgres container the server depends on):
+#   ./rpm-mcp start    boot Postgres (infra only; MCP client spawns the server itself)
+#   ./rpm-mcp stop     stop Postgres
+#   ./rpm-mcp status   container state + DB connectivity + row counts
+#   ./rpm-mcp logs     tail Postgres container logs
+#   ./rpm-mcp psql     open an interactive psql shell
+#   ./rpm-mcp dev      start MCP Inspector UI at http://localhost:5173
+#
+# Anything else is passed through to the Python CLI dispatcher, e.g.:
+#   ./rpm-mcp find-cve CVE-2024-1234
+#   ./rpm-mcp get-test-coverage vim
+#   ./rpm-mcp sync-package openssl
+#   ./rpm-mcp serve                 (run as MCP stdio server)
+
 set -euo pipefail
 
-cd "$(dirname "$(readlink -f "$0")")"
-exec uv run python mcp_server.py "$@"
+DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$DIR"
+
+infra_start() {
+    echo "==> Starting Postgres..."
+    "$DIR/infra/infra.sh" start
+    echo ""
+    echo "Postgres ready. The MCP server is spawned by your MCP client automatically."
+    echo "To register it, add this to your client config:"
+    echo ""
+    echo '  "rpm": {'
+    echo '    "command": "uv",'
+    echo '    "args": ["run", "mcp_server.py"],'
+    echo "    \"cwd\": \"$DIR\""
+    echo '  }'
+}
+
+infra_stop() {
+    echo "==> Stopping Postgres..."
+    "$DIR/infra/infra.sh" stop
+}
+
+infra_status() {
+    "$DIR/infra/infra.sh" status
+    echo ""
+    uv run python - <<'EOF'
+import asyncio, asyncpg, os, sys
+async def check():
+    url = os.getenv("DATABASE_URL", "postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp")
+    try:
+        conn = await asyncpg.connect(url)
+        pkgs   = await conn.fetchval("SELECT COUNT(*) FROM packages")
+        entries = await conn.fetchval("SELECT COUNT(*) FROM changelog_entries")
+        tests  = await conn.fetchval("SELECT COUNT(*) FROM openqa_tests")
+        await conn.close()
+        print(f"DB ok -- {pkgs} packages, {entries} changelog entries, {tests} test rows")
+    except Exception as e:
+        print(f"DB unreachable: {e}", file=sys.stderr)
+        sys.exit(1)
+asyncio.run(check())
+EOF
+}
+
+infra_dev() {
+    echo "==> Starting Postgres..."
+    "$DIR/infra/infra.sh" start
+    echo "==> Launching MCP Inspector at http://localhost:5173 ..."
+    exec uv run mcp dev mcp_server.py
+}
+
+case "${1:-}" in
+    start)  infra_start ;;
+    stop)   infra_stop ;;
+    status) infra_status ;;
+    logs)   "$DIR/infra/infra.sh" logs ;;
+    psql)   "$DIR/infra/infra.sh" psql ;;
+    dev)    infra_dev ;;
+    "")
+        # No args -- assume MCP stdio server (same as `serve` subcommand)
+        exec uv run python mcp_server.py
+        ;;
+    *)
+        # Pass through to the Python CLI dispatcher
+        exec uv run python mcp_server.py "$@"
+        ;;
+esac

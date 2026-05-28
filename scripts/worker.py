@@ -89,6 +89,20 @@ async def _run(args: argparse.Namespace) -> int:
             inserted = await db.upsert_openqa(oqa_tests)
             log.info("test_repo_refreshed", tests=inserted, files=len(coverage))
 
+        if args.testcatalog:
+            from src.testcatalog_client import TestCatalogClient
+
+            pkgs = await _load_packages(args)
+            client = TestCatalogClient()
+            total = 0
+            try:
+                for pkg in pkgs:
+                    tests = await client.get_tests_for_package(pkg)
+                    total += await db.upsert_openqa(tests, source="testcatalog")
+            finally:
+                await client.close()
+            log.info("testcatalog_refreshed", tests=total, packages=len(pkgs))
+
         if args.packages_path_provided or args.all:
             pkgs = await _load_packages(args)
             log.info("ingest_start", count=len(pkgs), concurrency=args.concurrency)
@@ -114,6 +128,11 @@ def _parse_args() -> argparse.Namespace:
         "--test-repo",
         action="store_true",
         help="Clone/pull os-autoinst test repo and ingest package-test mappings",
+    )
+    p.add_argument(
+        "--testcatalog",
+        action="store_true",
+        help="Fetch test coverage from TestCatalog API for ingested packages (requires TESTCATALOG_URL)",
     )
     p.add_argument(
         "--sweep", action="store_true", help="Evict per-kind manifest rows older than their CACHE_TTL_*_S"

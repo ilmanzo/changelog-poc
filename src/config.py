@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     github_token: str = ""
     gitlab_token: str = ""
 
+    # Tool execution timeouts (DD16; category='fast'|'search'; None = no limit)
+    tool_timeout_fast_s: int = 10  # DB-read tools: find_*, list_*, get_*, compare_*
+    tool_timeout_search_s: int = 30  # vector/FTS/live-API tools: semantic_search, fts_search, etc.
+
+    # TestCatalog API (read endpoints are public; token only needed for write ops)
+    testcatalog_url: str = "http://testcatalog.qa.suse.de:3001"
+    testcatalog_api_key: str = ""  # optional Bearer JWT
+
     # Optional .env file in the working directory; OS env vars still win.
     # `extra="ignore"` so unrelated keys in a shared .env don't error.
     model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}

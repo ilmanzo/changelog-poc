@@ -132,6 +132,12 @@ entry where the fix landed.
 which would break every restart after the first. Caught it in review and fixed it, but it's a reminder
 that generated code still needs a human pass.
 
+### Demo
+
+![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
+
+*Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
+
 ---
 
 ## Day 2 -- Spec assistant, news, and openQA (Tuesday 26 May 2026)
@@ -148,6 +154,12 @@ and **waterfall** for remote: try the fastest authoritative source first, fall b
 
 What got cut: Podman macro expansion (`get_expanded_spec` from the original prototype).
 The cost/complexity ratio was wrong for a three-day sprint. Deferred.
+
+### Demo
+
+![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
+
+*Asking: "show me 5 packages with recent security fixes that don't have openQA coverage"*
 
 ---
 
@@ -236,6 +248,16 @@ ingest data flow, sync+search sequence, FTS sequence.
 wiki at [github.com/ilmanzo/changelog-poc/wiki](https://github.com/ilmanzo/changelog-poc/wiki)
 with animated GIF demos embedded directly in the page.
 
+### Demo
+
+![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
+
+*Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
+
+![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
+
+*Asking: "find network-related packages whose changelog entries mention new command line flags in the last 2 months"*
+
 ---
 
 ## After the sprint -- production hardening
@@ -293,37 +315,6 @@ release notes via the respective REST APIs and store them as changelog entries t
 
 ---
 
-## Demo: the server in action
-
-The recordings below show rpm-mcp being used from `gemini-cli` as the MCP client.
-The MCP server starts in the background; gemini-cli queries it directly over stdio.
-
-### Changelog query
-
-![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
-
-Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"
-
-### Semantic search
-
-![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
-
-Asking: "find network related packages whose changelog entries mention new command line flags in the last 2 months"
-
-### Untested changes
-
-![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
-
-Asking: "show me 5 packages with recent security fixes that doesn't have openQA coverage"
-
-### CVE timeline
-
-![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
-
-Asking: "show me a summary of the packages updated since last month that have CVE fixes related to privilege escalation"
-
----
-
 ## Design decisions log
 
 | ID | Decision | Rationale |
@@ -341,6 +332,194 @@ Asking: "show me a summary of the packages updated since last month that have CV
 | DD11 | Single HTTP stack (aiohttp) | Dropped httpx after it crept in alongside aiohttp. One session factory, one retry policy. |
 | DD12 | Relative imports inside src/ | Enforced by ruff. Prevents accidental coupling to the install path. |
 | DD13 | .env file autoload | pydantic-settings loads `.env` from the working directory; OS env still wins. One config system. |
+
+---
+
+## TestCatalog integration (post-sprint)
+
+The existing openQA coverage source works by cloning `os-autoinst-distri-opensuse` locally and
+scanning `.pm` files for `# Package:` headers. This requires a fresh clone and a full disk scan
+on every refresh cycle.
+
+SUSE runs a live HTTP service -- the TestCatalog API (`testcatalog.qa.suse.de:3001`) -- that
+exposes the same metadata through a searchable REST API. It is effectively the same test repo
+served as a microservice, with a Swagger UI and OpenSearch-backed full-text search.
+
+### Why add it
+
+Three reasons:
+
+1. **No local clone needed.** `GET /api/v1/tests?q=vim&limit=200` returns test entries with
+   `sourcePath`, `comments` (containing `Package:` / `Summary:` headers), and `fullPath`
+   (direct GitHub URL). The same data, without cloning gigabytes.
+
+2. **Dual-source gap detection.** `find_untested_changes` now flags packages that have neither
+   openQA rows (from the local scan) nor TestCatalog rows (from the API). False positives drop
+   because the two sources have slightly different coverage -- a package not yet in the local
+   clone may already be in the API's index.
+
+3. **Future analytics.** The API also exposes `/api/v1/analytics/search` with `scope=bugs,openqa,gitlog`.
+   That opens the door to "which bugs are associated with tests for this package?" -- a future
+   `find_bugs_in_tests` tool without new data ingestion.
+
+### What changed
+
+The `openqa_tests` table gained a `source TEXT NOT NULL DEFAULT 'openqa'` column (migration
+`004_testcatalog.sql`). The UNIQUE constraint now covers `(package_id, test_path, source)`,
+so the same `.pm` path can exist once per source without conflict.
+
+`upsert_openqa(tests, source="testcatalog")` and `get_openqa_tests(package, source=...)` both
+accept an optional `source` parameter. Callers that don't pass it get the old behavior.
+
+A new `TestCatalogClient` (aiohttp, same session factory as all other HTTP sources) handles
+paging, package filtering (same `_PKG_RE` regex as `openqa_fetcher.py`), and content sanitization.
+
+The new `get_test_coverage(package, source=None)` MCP tool unifies openQA and TestCatalog
+data; it queries the live TestCatalog API when the cache is stale, writes results to the DB,
+and falls back to cached rows with a WARNING banner when the API is unreachable.
+(An earlier `get_testcatalog_tests` was superseded by this unified tool.)
+
+### Auth
+
+Read endpoints are public -- no credentials required. A Bearer JWT is accepted for write
+operations (summary reviews). `TESTCATALOG_API_KEY` env var carries the token when set.
+
+---
+
+## Day 4 -- Hardening sprint (Thursday 28 May 2026)
+
+A focused session to close the remaining plan items and sharpen the rough edges before wider use.
+
+### Error hierarchy
+
+Every unhandled exception previously surfaced as `"Error in <tool>: <raw python message>"`.
+A typed hierarchy (`src/errors.py`) fixes this:
+
+```
+RPMMcpError
+  ValidationError  -- invalid package name, bad date, bad query param
+  DBError          -- Postgres not running, pool exhausted
+  IngestError      -- ingest pipeline failure
+SourceError(RPMMcpError)   -- source unavailable (already existed, now inherits base)
+SourceNotFound(RPMMcpError) -- package not in any source (404)
+```
+
+`_tool_wrapper` catches each type and emits a specific, actionable message:
+
+| Exception | User sees |
+|---|---|
+| `ValidationError` | `Invalid input: ...` |
+| `SourceNotFound` | `Package not found in any configured source. Try sync_package first.` |
+| `SourceError` | `Data source unavailable -- <msg>. Try again later.` |
+| `DBError` / `asyncpg.PostgresError` | `Database error -- <msg>. Is PostgreSQL running?` |
+| `TimeoutError` | `Tool '<name>' exceeded the Ns time limit. ...` |
+
+### Tool timeouts
+
+Two new config settings gate how long a tool call can block:
+
+```
+TOOL_TIMEOUT_FAST_S=10    # DB-read tools: find_*, list_*, get_*, compare_*
+TOOL_TIMEOUT_SEARCH_S=30  # vector/FTS/live-API: semantic_search, fts_search, get_test_coverage
+```
+
+Sync/ingest tools (`sync_package`, `sync_all_distros`, `get_dependency_changes`) have no cap --
+they're blocking by design and can legitimately run for minutes on large packages.
+
+The timeout is injected as `asyncio.wait_for(fn(...), timeout)` inside `_tool_wrapper`, so no
+per-tool change was needed. Every `@_tool_wrapper` call now carries `category="fast"` or
+`category="search"` to select the right budget.
+
+### Postgres startup retry
+
+Previously the MCP server crashed immediately if Postgres wasn't ready when gemini spawned it.
+`Database.connect()` now retries 5 times with exponential backoff (2s, 4s, 8s, 16s, 30s) before
+raising `DBError`. Starting gemini before the container is fully ready no longer causes a
+disconnect.
+
+### Versioned migration tracking
+
+`apply_migrations` previously re-ran every `.sql` file on every startup (safe because all files
+are idempotent via `CREATE ... IF NOT EXISTS`, but wasteful). Now a `schema_migrations` table
+records which files have been applied:
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version     TEXT PRIMARY KEY,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+)
+```
+
+Each `.sql` file runs at most once per database. The tracking table itself is created inline --
+no bootstrap paradox.
+
+### Embedding model versioning
+
+All vectors are currently generated by `BAAI/bge-small-en-v1.5` (384-dim). Migration
+`005_embedding_versioning.sql` adds an `embedding_model TEXT` column to `changelog_entries`
+and `spec_sections`. Every upsert writes the active model name. When a new model is
+configured, old rows keep their original model tag. Semantic search serves mixed results
+during the transition (graceful degradation); a future migration adds a second vector column
+when a model with a different dimension is introduced.
+
+### Nightly backup
+
+`scripts/backup.sh` runs `pg_dump -Fc` and prunes files older than 7 days:
+
+```bash
+./rpm-mcp start   # Postgres
+systemctl --user enable --now rpm-mcp-backup.timer   # daily backup
+```
+
+### Control script
+
+`rpm-mcp` at the repo root wraps all infra operations:
+
+```
+./rpm-mcp start    # boot Postgres; MCP server is spawned by the client automatically
+./rpm-mcp stop     # stop Postgres
+./rpm-mcp status   # container state + live package/entry counts from DB
+./rpm-mcp dev      # Postgres + MCP Inspector at localhost:5173
+```
+
+The server speaks stdio, so there is nothing to "pre-start" -- the MCP client (Claude Code,
+gemini-cli) spawns it on demand via the entry in its config file.
+
+### Refactors and doc improvements
+
+- R8: removed redundant `is_local = False` from `HttpSource` (base class already defaults it)
+- R10: `_HEADER_RE` and `_BACKFILL_VERSION_RE` moved from `RPMManager` class body to module level
+- D1: `_init_conn` -- comment explains the per-connection pgvector codec requirement
+- D3: `chunk_text` -- concrete sliding-window example in docstring
+- D4: `CLEAN_RE` -- examples: `"1.2.3+git…"→"1.2.3"`, `"9.2p1"→"9.2"`
+- D5: `_HEADER_RE` in obs_parser -- example matched line as comment
+- D8: `get_dependencies` / `get_reverse_dependencies` -- noted that source is `rpm -q` subprocess, local-only
+
+### get_test_coverage (replaces get_openqa_tests)
+
+Following the TestCatalog integration a design review surfaced a cleaner interface:
+
+- `get_openqa_tests` retired (openQA-only, DB-only)
+- `get_test_coverage(package, source=None)` is the new unified tool:
+  - `source=None` -- returns rows from both openQA and TestCatalog
+  - `source='openqa'` -- DB-only (no live call)
+  - `source='testcatalog'` -- TTL-gated live API + DB cache
+  - Output: flat list with `[openqa]` / `[testcatalog]` label per row
+  - Stale TestCatalog data shows the same `WARNING: source fetch failed` banner as changelogs
+
+### Demo
+
+The most complex demo so far -- one prompt, three tool calls, a real cross-distro answer:
+
+![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
+
+*Asking: "openssl was updated last week. Which packages in my system depend on it, and did
+their changelogs mention that update? Give me a cross-distro status comparison between
+OpenSUSE, Ubuntu and Fedora. Summarise all findings."*
+
+The MCP client picks `get_reverse_dependencies` to find local dependents, `get_dependency_changes`
+to check their changelogs, and `compare_versions` for the cross-distro version table -- without
+the prompt naming any tool.
 
 ---
 

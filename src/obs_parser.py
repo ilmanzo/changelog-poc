@@ -17,6 +17,7 @@ _BLOCK_SPLIT = re.compile(r"^-{67}$", re.MULTILINE)
 # Why: timezone abbreviation length is 3 to 5 chars (UTC=3, CEST/AEST=4, AEDT=4,
 # WEST=4, MSKT=4, NZDST=5). The original {3} silently dropped non-3-char-TZ
 # entries because the regex never matched and the block was discarded.
+# Matches: "Wed May 28 14:22:00 UTC 2026 - Jane Doe <jane@suse.com>"
 _HEADER_RE = re.compile(r"^([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{2}:\d{2}:\d{2} [A-Z]{3,5} \d{4}) - (.*)$")
 
 # Why: precedence matters — first match wins. The explicit "update/upgrade to version X"

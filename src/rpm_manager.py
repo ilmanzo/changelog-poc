@@ -11,6 +11,12 @@ from .models import ChangelogEntry, PackageMetadata
 from .process import run_subprocess
 from .sanitize import scrub_external
 
+_HEADER_RE = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}) (.*)$")
+_BACKFILL_VERSION_RE = re.compile(
+    r"^[ \t]*- (?:Update|Upgrade) to (?:version )?([\d\.]+)",
+    re.MULTILINE | re.IGNORECASE,
+)
+
 
 class RPMManager:
     """Wraps ``rpm -q`` subprocess calls."""
@@ -123,12 +129,6 @@ class RPMManager:
         rdeps.discard(package_name)
         return frozenset(rdeps)
 
-    _HEADER_RE = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}) (.*)$")
-    _BACKFILL_VERSION_RE = re.compile(
-        r"^[ \t]*- (?:Update|Upgrade) to (?:version )?([\d\.]+)",
-        re.MULTILINE | re.IGNORECASE,
-    )
-
     @staticmethod
     def parse_changelog(raw_text: str, *, package: str | None = None) -> list[ChangelogEntry]:
         """Parse RPM ``--changelog`` output into ChangelogEntry list."""
@@ -144,7 +144,7 @@ class RPMManager:
         current_content: list[str] = []
 
         for line in raw_text.splitlines():
-            match = RPMManager._HEADER_RE.match(line)
+            match = _HEADER_RE.match(line)
             if match:
                 if current_header:
                     entries.append(RPMManager._create_entry(current_header, current_content))
@@ -175,7 +175,7 @@ class RPMManager:
         for idx, e in enumerate(entries):
             if e.version != "unknown":
                 continue
-            v_match = RPMManager._BACKFILL_VERSION_RE.search(e.content)
+            v_match = _BACKFILL_VERSION_RE.search(e.content)
             if v_match:
                 entries[idx] = ChangelogEntry(
                     version=v_match.group(1),

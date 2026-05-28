@@ -14,9 +14,13 @@ from ._wrap import _tlog, _tool_wrapper
 from .changelog import _fetch_recent_releases
 
 
-@_tool_wrapper("get_dependencies")
+@_tool_wrapper("get_dependencies", category="fast")
 async def get_dependencies(package: str) -> str:
-    """Direct runtime deps of *package* from the local RPM database."""
+    """Direct runtime deps of *package* from the local RPM database.
+
+    Source: ``rpm -q --requires`` on the locally installed package.
+    Only works if *package* is installed on this machine.
+    """
     validate_package_name(package)
     try:
         deps = await rpm_mgr.get_dependencies(package)
@@ -28,9 +32,13 @@ async def get_dependencies(package: str) -> str:
     return f"Dependencies of {package} ({len(deps)}):\n" + "\n".join(sorted(deps))
 
 
-@_tool_wrapper("get_reverse_dependencies")
+@_tool_wrapper("get_reverse_dependencies", category="fast")
 async def get_reverse_dependencies(package: str) -> str:
-    """Installed packages that depend on *package* (local RPM database)."""
+    """Installed packages that depend on *package* (local RPM database).
+
+    Source: ``rpm -q --whatrequires``. Reflects only locally installed packages,
+    not the full OBS dependency graph.
+    """
     validate_package_name(package)
     try:
         rdeps = await rpm_mgr.get_reverse_dependencies(package)
@@ -87,7 +95,7 @@ async def get_dependency_changes(package: str, n: int = 3, depth: int = 1, refre
     return "\n".join(lines)
 
 
-@_tool_wrapper("find_core_packages")
+@_tool_wrapper("find_core_packages", category="fast")
 async def find_core_packages(
     n: int = 50,
     seed_pattern: str = "base",

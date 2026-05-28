@@ -1,7 +1,8 @@
-"""Tool wrapper: timing + structured logging + exception → user-facing string."""
+"""Tool wrapper: timing + structured logging + typed exception dispatch."""
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import functools
 import inspect
@@ -10,7 +11,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any
 
+import asyncpg
 import structlog
+
+from ..errors import DBError, ValidationError
+from ..sources.base import SourceError, SourceNotFound
 
 _logger = structlog.get_logger("rpm-mcp.server")
 
@@ -57,19 +62,33 @@ def _wrap_untrusted(body: str, sources: tuple[str, ...]) -> str:
     return f'<rpm-mcp:untrusted-data sources="{src}">\n{body}\n</rpm-mcp:untrusted-data>'
 
 
+def _resolve_timeout(category: str | None) -> float | None:
+    """Return timeout in seconds for *category*, or None for no limit."""
+    from ..config import settings
+
+    if category == "fast":
+        return float(settings.tool_timeout_fast_s)
+    if category == "search":
+        return float(settings.tool_timeout_search_s)
+    return None  # sync/ingest tools: no cap
+
+
 def _tool_wrapper(
     tool_name: str,
     untrusted_sources: tuple[str, ...] = (),
+    category: str | None = None,
 ) -> Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]]:
-    """Wrap a tool body with timing, structured logging, and uniform errors.
+    """Wrap a tool body with timing, typed error dispatch, and structured logging.
 
-    ``untrusted_sources`` lists the external data sources whose content
-    appears in the tool's return string. When non-empty (and the call is
-    not from the CLI), the body is wrapped in an
-    ``<rpm-mcp:untrusted-data sources="...">`` envelope so a downstream
-    LLM treats it as data rather than instructions. The stale-data banner
-    stays outside the envelope so the warning isn't itself untrusted.
+    *category* controls the asyncio timeout:
+      ``'fast'``   -- short DB-read tools (TOOL_TIMEOUT_FAST_S, default 10s)
+      ``'search'`` -- vector/FTS/live-API tools (TOOL_TIMEOUT_SEARCH_S, default 30s)
+      ``None``     -- sync/ingest tools: no timeout applied
+
+    ``untrusted_sources`` lists external data origins for the S7b envelope.
     """
+    timeout = _resolve_timeout(category)
+    _category_label = category or "none"
 
     def decorator(fn: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
         sig = inspect.signature(fn)
@@ -89,16 +108,41 @@ def _tool_wrapper(
                 **{k: v for k, v in bound.items() if isinstance(v, (str, int, bool))},
             )
             try:
-                result = await fn(*args, **kwargs)
+                coro = fn(*args, **kwargs)
+                result = await (asyncio.wait_for(coro, timeout=timeout) if timeout else coro)
                 stale_at = _stale_state.get()
+                elapsed = time.perf_counter() - t0
                 log.info(
                     "tool_done",
-                    elapsed_s=round(time.perf_counter() - t0, 3),
+                    elapsed_s=round(elapsed, 3),
+                    duration_ms=round(elapsed * 1000),
+                    category=_category_label,
                     stale=stale_at is not None,
                     **(_log_extras.get() or {}),
                 )
                 body = _wrap_untrusted(result, untrusted_sources)
                 return _stale_banner(stale_at) + body if stale_at is not None else body
+            except TimeoutError:
+                elapsed = round(time.perf_counter() - t0, 3)
+                log.warning("tool_timeout", elapsed_s=elapsed, timeout_s=timeout)
+                return (
+                    f"Tool '{tool_name}' exceeded the {timeout:.0f}s time limit. "
+                    "Try a more specific query, or use the worker for large operations."
+                )
+            except ValidationError as e:
+                log.warning(
+                    "tool_validation_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3)
+                )
+                return f"Invalid input: {e}"
+            except SourceNotFound:
+                log.info("tool_source_not_found", elapsed_s=round(time.perf_counter() - t0, 3))
+                return "Package not found in any configured source. Try sync_package to ingest it first."
+            except SourceError as e:
+                log.warning("tool_source_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
+                return f"Data source unavailable -- {e}. Try again later or check your network connection."
+            except (DBError, asyncpg.PostgresError) as e:
+                log.error("tool_db_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
+                return f"Database error -- {e}. Is PostgreSQL running?"
             except Exception as e:
                 log.exception(
                     "tool_error",

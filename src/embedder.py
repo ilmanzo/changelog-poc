@@ -70,7 +70,12 @@ async def embed_batch(texts: Iterable[str]) -> list[list[float]]:
 
 
 def chunk_text(text: str) -> list[str]:
-    """Sliding-window chunking for long sections, settings-driven."""
+    """Sliding-window chunking for long sections, settings-driven.
+
+    Example (size=10, overlap=3, step=7):
+      "abcdefghijklmnopqrst" -> ["abcdefghij", "hijklmnopq", "nopqrst"]
+      Last chunk is anchored to the end of the text to avoid a short tail chunk.
+    """
     size = settings.embedding_chunk_size
     overlap = settings.embedding_chunk_overlap
     if len(text) <= size:

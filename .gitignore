@@ -36,6 +36,9 @@ infra/pg_data/
 .env
 .env.local
 
+# Claude Code workspace state (private memory + local settings)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

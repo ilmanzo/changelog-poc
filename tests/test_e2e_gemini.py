@@ -25,9 +25,9 @@ Requirements:
     - vim and curl installed locally (standard on openSUSE Tumbleweed)
     - For @pytest.mark.network tests: internet access (OBS, Pagure, RSS feeds)
 
-openQA tests (get_openqa_tests tool) require a local os-autoinst-distri-opensuse
-checkout and are not automated here — test manually with:
-    gemini -y -p "Call get_openqa_tests with package='zypper'"
+Test coverage (get_test_coverage tool) queries the live TestCatalog API and/or
+openQA local DB. Test manually with:
+    gemini -y -p "Call get_test_coverage with package='zypper'"
 """
 from __future__ import annotations
 
