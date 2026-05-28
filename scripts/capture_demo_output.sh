@@ -72,9 +72,13 @@ else
     mapfile -t TAPES < <(find "$TAPE_DIR" -name 'demo_*.tape' | sort)
 fi
 
+PAUSE_S="${CAPTURE_PAUSE:-15}"
+first=1
+
 for tape in "${TAPES[@]}"; do
     name="$(basename "${tape%.tape}")"
     page="${TAPE_DIR}/${name}.md"
+    txt="${TAPE_DIR}/${name}.txt"
     prompt="$(extract_prompt "$tape")"
 
     if [[ -z "$prompt" ]]; then
@@ -84,6 +88,18 @@ for tape in "${TAPES[@]}"; do
     if [[ ! -f "$page" ]]; then
         echo "SKIP $name (no demo page at docs/vhs/${name}.md)"
         continue
+    fi
+    if [[ -f "$txt" ]]; then
+        echo "SKIP $name (already captured: docs/vhs/${name}.txt)"
+        continue
+    fi
+
+    # Pause between requests to avoid quota exhaustion; skip before first run.
+    if [[ $first -eq 1 ]]; then
+        first=0
+    else
+        echo "    sleeping ${PAUSE_S}s before next request..."
+        sleep "$PAUSE_S"
     fi
 
     echo ""
@@ -99,7 +115,6 @@ for tape in "${TAPES[@]}"; do
     fi
 
     # 1. Save raw .txt alongside tape and GIF
-    txt="${TAPE_DIR}/${name}.txt"
     printf '%s\n' "$output" > "$txt"
     echo "    saved: docs/vhs/${name}.txt"
 

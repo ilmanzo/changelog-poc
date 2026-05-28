@@ -6,8 +6,6 @@ returns a ranked summary.
 
 **Prompt:** *"What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
 
-![Vim changelog query](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
-
 ## Session output
 
 <!-- demo-output:demo_changelog -->
@@ -27,3 +25,5 @@ Based on the changelog data, here are the 5 most relevant changes:
 Other notable mentions include the ongoing work on **GTK4 support** for the GUI version and the inclusion of **built-in EditorConfig support**, both of which further modernize the Vim ecosystem.
 ```
 <!-- /demo-output:demo_changelog -->
+
+![Vim changelog query](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)

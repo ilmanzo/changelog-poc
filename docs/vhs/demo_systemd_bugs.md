@@ -7,8 +7,6 @@ lack test coverage.
 
 **Prompt:** *"Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."*
 
-![QA triage -- systemd](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_systemd_bugs.gif)
-
 ## Session output
 
 <!-- demo-output:demo_bugs -->
@@ -56,3 +54,5 @@ The package was recently upgraded to **v260.1**, introducing several structural 
 The triage status is **Active but Narrow**. While core components (Journal, Udev, Network) are well-covered by openQA, the transition to **v260.1** and the recent regressions in **v257.x** scriptlets reveal a need for more granular testing of sub-packages and installation triggers. Triage efforts should focus on verifying the `bsc#1259761` fix and expanding the `testcatalog` mapping to include `boot` and `resolved` modules.
 ```
 <!-- /demo-output:demo_bugs -->
+
+![QA triage -- systemd](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_systemd_bugs.gif)
