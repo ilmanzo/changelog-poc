@@ -10,6 +10,6 @@ Set Width 1024
 Set Height 1024
 Set Theme "Molokai"
 
-Type `gemini -y -p "Show me Bugzilla bugs filed for openssl, the openQA tests that cover openssl, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status." 2>/dev/null`
+Type `gemini -y -p "Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status." 2>/dev/null`
 Enter
-Sleep 3m
+Sleep 2m

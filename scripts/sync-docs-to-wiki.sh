@@ -23,6 +23,13 @@ declare -A MAP=(
     [docs/THREAT_MODEL.md]=Threat-Model.md
     [docs/dev-diary.md]=Development-Diary.md
     [CHANGELOG.md]=Changelog.md
+    [docs/vhs/demo_changelog.md]=Demo-Changelog.md
+    [docs/vhs/demo_untested.md]=Demo-Untested.md
+    [docs/vhs/demo_cve_timeline.md]=Demo-CVE-Timeline.md
+    [docs/vhs/demo_search.md]=Demo-Search.md
+    [docs/vhs/demo_cross_distro.md]=Demo-Cross-Distro.md
+    [docs/vhs/demo_bugs.md]=Demo-Bugs.md
+    [docs/vhs/demo_openssl_bugs.md]=Demo-Openssl-Bugs.md
 )
 
 for src in "${!MAP[@]}"; do

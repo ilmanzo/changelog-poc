@@ -16,6 +16,18 @@ MCP-compatible client.
 | [Development Diary](Development-Diary) | Sprint journal with design decisions and demos |
 | [Changelog](Changelog) | CalVer release history |
 
+## Demos
+
+| Demo | Description |
+|---|---|
+| [Vim changelog query](Demo-Changelog) | Compare two versions of a package and surface the most relevant changes |
+| [Untested security fixes](Demo-Untested) | Find packages with security fixes that lack openQA test coverage |
+| [CVE privilege escalation timeline](Demo-CVE-Timeline) | Summarise packages with privilege-escalation CVE fixes in the last month |
+| [Semantic search](Demo-Search) | Find packages by topic across all cached changelog entries |
+| [Cross-distro blast radius](Demo-Cross-Distro) | Trace openssl dependents and compare versions across distros |
+| [QA triage -- systemd](Demo-Bugs) | Bugs + tests + changelog for systemd in one prompt |
+| [QA triage -- openssl](Demo-Openssl-Bugs) | Bugs + tests + changelog for openssl in one prompt |
+
 ## Quick start
 
 ```bash

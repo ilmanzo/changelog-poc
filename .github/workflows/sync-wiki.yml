@@ -16,6 +16,8 @@ on:
     branches: [main]
     paths:
       - 'docs/**.md'
+      - 'docs/vhs/**.md'
+      - 'docs/vhs/**.txt'
       - 'wiki/**'
       - 'CHANGELOG.md'
       - 'scripts/sync-docs-to-wiki.sh'

@@ -134,9 +134,7 @@ that generated code still needs a human pass.
 
 ### Demo
 
-*Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
-
-![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
+[Vim changelog query](Demo-Changelog)
 
 ---
 
@@ -157,9 +155,7 @@ The cost/complexity ratio was wrong for a three-day sprint. Deferred.
 
 ### Demo
 
-*Asking: "show me 5 packages with recent security fixes that don't have openQA coverage"*
-
-![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
+[Untested security fixes](Demo-Untested)
 
 ---
 
@@ -233,32 +229,9 @@ security, and asyncio patterns. First run: 45 issues. All cleared in two commits
 
 ### Demo
 
-*Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
+[CVE privilege escalation timeline](Demo-CVE-Timeline)
 
-![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
-
-### Day 3, end of day: configuration and documentation
-
-**`.env` file support.** With 25 environment variables the setup story was getting unwieldy.
-`pydantic-settings` already supports `.env` file loading -- one line in the `Settings` model
-config enables it. Added `.env.example` with the five variables operators actually need to touch.
-OS environment variables still take precedence; the `.env` file is just a convenience.
-
-**Architecture diagrams.** The architecture document had ASCII art and inline mermaid blocks
-that only rendered in specific viewers. Converted to proper Mermaid source files and a
-`scripts/render_diagrams.sh` that pulls the official mermaid-cli container via Podman to render
-SVGs -- no Node.js or npm required on the host. Four diagrams committed: component overview,
-ingest data flow, sync+search sequence, FTS sequence.
-
-**This diary and the GitHub wiki.** Wrote this development diary and published it to the project
-wiki at [github.com/ilmanzo/changelog-poc/wiki](https://github.com/ilmanzo/changelog-poc/wiki)
-with animated GIF demos embedded directly in the page.
-
-### Demo
-
-*Asking: "find network-related packages whose changelog entries mention new command line flags in the last 2 months"*
-
-![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
+[Semantic search](Demo-Search)
 
 ---
 
@@ -385,17 +358,7 @@ Following the TestCatalog integration a design review surfaced a cleaner interfa
 
 ### Demo
 
-The most complex demo so far -- one prompt, three tool calls, a real cross-distro answer:
-
-*Asking: "openssl was updated last week. Which packages in my system depend on it, and did
-their changelogs mention that update? Give me a cross-distro status comparison between
-OpenSUSE, Ubuntu and Fedora. Summarise all findings."*
-
-![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
-
-The MCP client picks `get_reverse_dependencies` to find local dependents, `get_dependency_changes`
-to check their changelogs, and `compare_versions` for the cross-distro version table -- without
-the prompt naming any tool.
+[Cross-distro dependency blast radius](Demo-Cross-Distro)
 
 ---
 
@@ -542,13 +505,9 @@ exactly as it does for changelog sources.
 
 ### Demo
 
-*Asking: "Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."*
+[QA triage -- systemd](Demo-Bugs)
 
-![Bugs triage demo -- systemd](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_bugs.gif)
-
-*Asking: "Show me Bugzilla bugs filed for openssl, the openQA tests that cover openssl, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."*
-
-![Bugs triage demo -- openssl](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_openssl_bugs.gif)
+[QA triage -- openssl](Demo-Openssl-Bugs)
 
 ---
 

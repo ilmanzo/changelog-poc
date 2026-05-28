@@ -1,88 +1,60 @@
 #!/usr/bin/env bash
-# Run each demo prompt through gemini-cli and embed the clean output into
-# docs/dev-diary.md immediately after each GIF embed.
-#
-# Output blocks in the diary are wrapped in:
-#   <!-- demo-output:NAME -->
-#   ...
-#   <!-- /demo-output:NAME -->
-# Re-running the script replaces existing blocks idempotently.
+# Run each demo prompt through gemini-cli, save the clean output to a .txt file,
+# then embed it into the corresponding docs/vhs/demo_NAME.md demo page between
+# <!-- demo-output:NAME --> markers (idempotent -- safe to re-run).
 #
 # Usage:
 #   scripts/capture_demo_output.sh               # all tapes
-#   scripts/capture_demo_output.sh demo_bugs     # single tape (no .tape extension)
+#   scripts/capture_demo_output.sh demo_bugs     # single tape (no extension)
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 TAPE_DIR="$REPO/docs/vhs"
-DIARY="$REPO/docs/dev-diary.md"
-BASE_URL="https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs"
 
 strip_ansi() { sed 's/\x1b\[[0-9;]*[mKJH]//g; s/\r//g'; }
 
-# Extract gemini prompt from a tape file
 extract_prompt() {
-    local tape="$1"
-    grep '^Type' "$tape" \
+    grep '^Type' "$1" \
         | sed "s/^Type \`gemini -y -p \"//; s/\" 2>\/dev\/null\`$//" \
         | head -1
 }
 
-# Run one capture: returns the clean output text
 run_prompt() {
-    local prompt="$1"
-    gemini -y -p "$prompt" 2>/dev/null | strip_ansi
+    gemini -y -p "$1" 2>/dev/null | strip_ansi
 }
 
-# Build the replacement block for the diary
-build_block() {
-    local name="$1" prompt="$2" output="$3"
-    printf '<!-- demo-output:%s -->\n' "$name"
-    printf '```console\n'
-    printf '$ gemini -y -p "%s"\n\n' "$prompt"
-    printf '%s\n' "$output"
-    printf '```\n'
-    printf '<!-- /demo-output:%s -->' "$name"
-}
+# Inject/replace the console block inside the demo page.
+inject_into_page() {
+    local page="$1" name="$2" prompt="$3" output="$4"
+    local start="<!-- demo-output:${name} -->"
+    local end="<!-- /demo-output:${name} -->"
 
-# Inject/replace the output block in the diary, right after the GIF embed line.
-inject_into_diary() {
-    local name="$1" prompt="$2" output="$3"
-    local gif_pattern="${BASE_URL}/${name}.gif"
-    local start_marker="<!-- demo-output:${name} -->"
-    local end_marker="<!-- /demo-output:${name} -->"
-    local block
-    block="$(build_block "$name" "$prompt" "$output")"
-
-    python3 - "$DIARY" "$gif_pattern" "$start_marker" "$end_marker" "$block" <<'PY'
+    python3 - "$page" "$start" "$end" "$prompt" "$output" <<'PY'
 import sys
 from pathlib import Path
 
-diary_path, gif_pattern, start, end, block = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-text = Path(diary_path).read_text()
+page_path, start, end, prompt, output = sys.argv[1:]
+text = Path(page_path).read_text()
 
-# Remove any existing block for this demo
-while start in text and end in text:
+block = (
+    f"{start}\n"
+    f"```console\n"
+    f'$ gemini -y -p "{prompt}"\n\n'
+    f"{output}\n"
+    f"```\n"
+    f"{end}"
+)
+
+if start in text and end in text:
     s = text.index(start)
     e = text.index(end) + len(end)
-    # also eat the trailing newline if present
-    if e < len(text) and text[e] == '\n':
-        e += 1
-    text = text[:s] + text[e:]
+    text = text[:s] + block + text[e:]
+else:
+    # Append at end as fallback
+    text = text.rstrip('\n') + '\n\n' + block + '\n'
 
-# Find the GIF embed line and inject the block after it
-lines = text.splitlines(keepends=True)
-out = []
-for i, line in enumerate(lines):
-    out.append(line)
-    if gif_pattern in line:
-        # Insert blank line + block after the GIF line
-        if out[-1].rstrip('\n'):  # gif line has content
-            out.append('\n')
-        out.append(block + '\n')
-Path(diary_path).write_text(''.join(out))
-print(f"  injected after: {line.strip()[:80]}")
+Path(page_path).write_text(text)
 PY
 }
 
@@ -100,9 +72,15 @@ fi
 
 for tape in "${TAPES[@]}"; do
     name="$(basename "${tape%.tape}")"
+    page="${TAPE_DIR}/${name}.md"
     prompt="$(extract_prompt "$tape")"
+
     if [[ -z "$prompt" ]]; then
-        echo "SKIP $name (no Type line found in tape)"
+        echo "SKIP $name (no Type line in tape)"
+        continue
+    fi
+    if [[ ! -f "$page" ]]; then
+        echo "SKIP $name (no demo page at docs/vhs/${name}.md)"
         continue
     fi
 
@@ -112,12 +90,18 @@ for tape in "${TAPES[@]}"; do
     echo "    running gemini..."
 
     output="$(run_prompt "$prompt")"
-    inject_into_diary "$name" "$prompt" "$output"
-    echo "    diary: updated"
+
+    # 1. Save raw .txt alongside tape and GIF
+    txt="${TAPE_DIR}/${name}.txt"
+    printf '%s\n' "$output" > "$txt"
+    echo "    saved: docs/vhs/${name}.txt"
+
+    # 2. Embed into the demo page
+    inject_into_page "$page" "$name" "$prompt" "$output"
+    echo "    page:  docs/vhs/${name}.md updated"
 done
 
 echo ""
 echo "Done. Commit and push -- the GitHub Action publishes to the wiki automatically:"
-echo "  git add docs/dev-diary.md scripts/capture_demo_output.sh"
-echo "  git commit -m 'docs(diary): embed captured gemini output in demo sections'"
+echo "  git add docs/vhs/ && git commit -m 'docs(demos): refresh captured gemini output'"
 echo "  git push origin main"
