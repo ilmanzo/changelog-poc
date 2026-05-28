@@ -25,7 +25,7 @@ MCP-compatible client.
 | [CVE privilege escalation timeline](Demo-CVE-Timeline) | Summarise packages with privilege-escalation CVE fixes in the last month |
 | [Semantic search](Demo-Search) | Find packages by topic across all cached changelog entries |
 | [Cross-distro blast radius](Demo-Cross-Distro) | Trace openssl dependents and compare versions across distros |
-| [QA triage -- systemd](Demo-Bugs) | Bugs + tests + changelog for systemd in one prompt |
+| [QA triage -- systemd](Demo-Systemd-Bugs) | Bugs + tests + changelog for systemd in one prompt |
 | [QA triage -- openssl](Demo-Openssl-Bugs) | Bugs + tests + changelog for openssl in one prompt |
 
 ## Quick start

@@ -505,7 +505,7 @@ exactly as it does for changelog sources.
 
 ### Demo
 
-[QA triage -- systemd](Demo-Bugs)
+[QA triage -- systemd](Demo-Systemd-Bugs)
 
 [QA triage -- openssl](Demo-Openssl-Bugs)
 

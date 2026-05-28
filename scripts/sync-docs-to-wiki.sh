@@ -28,7 +28,7 @@ declare -A MAP=(
     [docs/vhs/demo_cve_timeline.md]=Demo-CVE-Timeline.md
     [docs/vhs/demo_search.md]=Demo-Search.md
     [docs/vhs/demo_cross_distro.md]=Demo-Cross-Distro.md
-    [docs/vhs/demo_bugs.md]=Demo-Bugs.md
+    [docs/vhs/demo_systemd_bugs.md]=Demo-Systemd-Bugs.md
     [docs/vhs/demo_openssl_bugs.md]=Demo-Openssl-Bugs.md
 )
 
