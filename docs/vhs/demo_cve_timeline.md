@@ -12,48 +12,52 @@ over a unified multi-distro changelog index.
 ```console
 $ gemini -y -p "show me a summary of the packages updated since last month that have CVE fixes related to privilege escalation"
 
-Based on the changelog data from the last month (since April 28, 2026), several packages have
-received updates addressing vulnerabilities that could lead to privilege escalation or related
-security boundary escapes:
+Based on a scan of recent package updates and security news (May 2026), here is a summary of
+packages that have received CVE fixes related to **privilege escalation** in the last month:
 
-### **1. OpenSSH (Multiple Distros)**
-*   **CVE-2026-35385:** Fixed a vulnerability in `scp` where it failed to clear **setuid/setgid**
-bits from downloaded files when running as root in legacy mode (`-O`) without the preserve modes
-flag (`-p`).
-*   **CVE-2026-35414:** Addressed mishandling of the `authorized_keys` principals option that could
-allow inappropriate matching if a principal name contained a comma.
-*   **CVE-2026-35386:** Fixed potential arbitrary shell command execution via shell metacharacters
-in usernames passed to `ssh(1)`.
+### **1. pie (Package Installation Engine)**
+*   **Version:** 1.4.5-1 (Updated May 27, 2026)
+*   **Fixes:**
+    *   **GHSA-pm6p-666q-hvj5:** Fixed a **root code execution** vulnerability via a Time-of-Check
+    to Time-of-Use (TOCTOU) race condition. An attacker could exploit this during package
+    operations to gain root privileges.
+    *   **GHSA-h842-vjwg-pxxx:** Fixed a sudo-elevated arbitrary file deletion vulnerability via
+    malicious metadata in `UninstallUsingUnlink`.
+*   **Status:** Released for Fedora 43 and EPEL 10.
 
-### **2. libzypp (openSUSE)**
-*   **CVE-2026-44933:** Prevents configured scripts from **escaping the sigcheck directory**, which
-could allow a local attacker with specific permissions to influence system-level script execution.
+### **2. sudo**
+*   **Version:** (Updated April 6, 2026 / Early May Sync)
+*   **Fixes:**
+    *   **CVE-2026-35535:** Potential privilege escalation when running the mailer. This update
+    includes the `fix-CVE-2026-35535.patch`.
+    *   **CVE-2025-32462 & CVE-2025-32463:** Local privilege escalation via the `--host` and
+    `chroot` options (addressed in 1.9.17p1, recently propagated to stable channels).
+*   **Status:** Updated in openSUSE/SUSE repositories.
 
-### **3. glibc (Fedora & openSUSE)**
-*   **CVE-2026-5450:** Fixed a **buffer overflow** in `scanf` when using the `%mc` format specifier.
-*   **CVE-2026-5928:** Fixed **memory corruption** in `ungetwc` when operating on byte streams.
-*   **CVE-2026-5435 & CVE-2026-6238:** Addressed buffer overflows and overreads in `ns_sprintrrf`.
+### **3. apache2**
+*   **Version:** 2.4.67 (Updated May 6, 2026)
+*   **Fixes:**
+    *   **CVE-2026-24072:** Elevation of privileges in `mod_rewrite` via `ap_expr`. This flaw
+    allowed local `.htaccess` authors to read files with the privileges of the `httpd` user.
+*   **Status:** Critical update for web servers using custom rewrite rules.
 
-### **4. policycoreutils (Fedora)**
-*   **Security Enhancements:** Received several security improvements for the **sandbox** and
-**seunshare** tools, which are critical for maintaining privilege boundaries in SELinux
-environments.
-
-### **5. Linux Kernel (kernel-default, openSUSE)**
-*   **CVE-2026-43348, CVE-2026-43349, CVE-2026-43350, CVE-2026-43490:** Multiple kernel
-vulnerabilities were addressed in the mid-May updates. Kernel vulnerabilities are frequently
-leveraged for local privilege escalation (LPE).
+### **4. pam (Pluggable Authentication Modules)**
+*   **Version:** 1.7.1 / 1.7.2 (Recent maintenance sync)
+*   **Fixes:**
+    *   **CVE-2025-6020:** Privilege escalation via `pam_namespace`. This vulnerability allowed
+    attackers to exploit insecure path handling to escalate privileges during session setup.
+*   **Status:** Maintenance updates in May 2026 finalized the backports for multiple distributions.
 
 ### **Summary Table**
 
-| Package | Version (Distro) | Date | Primary Security Fix |
-| :--- | :--- | :--- | :--- |
-| **openssh** | 10.2p1 (Ubuntu/Fedora) | Apr 28, 2026 | `scp` setuid/setgid clearing
-(CVE-2026-35385) |
-| **libzypp** | 17.38.9 (openSUSE) | May 18, 2026 | sigcheck directory escape (CVE-2026-44933) |
-| **glibc** | 2.43.9000-14 (Fedora) | Apr 29, 2026 | `scanf` buffer overflow (CVE-2026-5450) |
-| **policycoreutils**| 3.10-4 (Fedora) | May 24, 2026 | `seunshare` and sandbox improvements |
-| **kernel** | 6.x (openSUSE) | May 14, 2026 | Multiple CVEs (CVE-2026-43349, etc.) |
+| Package | Version | CVE / Advisory | Fix Date | Impact |
+| :--- | :--- | :--- | :--- | :--- |
+| **pie** | 1.4.5-1 | GHSA-pm6p-666q-hvj5 | 2026-05-27 | **Root Code Execution** |
+| **apache2** | 2.4.67 | CVE-2026-24072 | 2026-05-06 | Elevation of Privilege |
+| **sudo** | 1.9.17+ | CVE-2026-35535 | 2026-05-01* | Local Privilege Escalation |
+| **pam** | 1.7.2 | CVE-2025-6020 | 2026-05-15* | Path-based Escalation |
+
+*\*Dates reflect general availability in stable repositories.*
 ```
 <!-- /demo-output:demo_cve_timeline -->
 

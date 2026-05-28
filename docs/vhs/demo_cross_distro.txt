@@ -1,38 +1,26 @@
-OpenSSL and its ecosystem have seen significant activity recently, particularly with the emergence of **OpenSSL 4.0.0** and subsequent compatibility updates in major system packages.
+The recent **OpenSSL** update (specifically the transition to/optimization of the **3.5.x** branch) has impacted several packages on your system. Below is the breakdown of dependencies, changelog mentions, and a cross-distribution comparison.
 
-### 1. OpenSSL Update Status (Cross-Distro)
+### 1. Local Dependencies
+The following packages on your system depend directly on `openssl` (or `openssl-3`):
+*   **System Tools:** `sdbootutil`, `pesign-obs-integration`
+*   **Language Runtimes/Modules:** `python313-certifi`, `lua54-luarocks`, `luajit-luarocks`, `perl-Crypt-SSLeay`
+*   **Services/Applications:** `xorg-x11-Xvnc`, `openssl-3` (the base package)
 
-The latest status across the requested distributions as of late May 2026:
+### 2. Changelog Mentions of the Update
+Several packages updated in the last two weeks explicitly mention OpenSSL changes:
+*   **`python313-certifi` (2026-05-19):** Updated to add a missing BuildRequirement for `openssl` to correctly handle the `/etc/ssl/ca-bundle.pem` generation.
+*   **`openssl-3` (2026-05-12):** The OpenSUSE update introduced **POWER performance enhancements** and optimized **ML-DSA NTT** (Module-Lattice-Based Digital Signature Algorithm).
+*   **`python313-cryptography` (2026-05-09):** Although not a direct dependency, its recent update added support for post-quantum algorithms (**ML-KEM** and **ML-DSA**) specifically when used with OpenSSL 3.5.0 or later.
+*   **`nginx` (2026-05-13):** Mentioned updating the OpenSSL version used for builds and fixing various SSL-related logging and protocol issues.
 
-| Distribution | Version | Latest Update | Key Changes |
+### 3. Cross-Distro Status Comparison
+The current state of OpenSSL across the major distributions shows that while all are moving toward the 3.5 series, the timing of their most recent "major" updates differs:
+
+| Distro | Version | Latest Update | Key Focus of Recent Changes |
 | :--- | :--- | :--- | :--- |
-| **OpenSUSE** | `openssl-3` (3.5.3) | **May 12, 2026** | **Performance**: Optimized MLDSA NTT for POWER (p8+) architectures; security fixes for CVE-2026-28387 and others in March. |
-| **Ubuntu** | `3.5.5-1ubuntu3` | **April 7, 2026** | **Security**: Fixed TLS 1.3 server key agreement issue (unexpected key selection) and NULL pointer dereferences in OCSP. |
-| **Fedora** | `1:3.5.6-1` | **April 19, 2026** | **Security**: Rebase to 3.5.6 resolving CVE-2026-2673 and CVE-2026-28387. A revert of a premature OpenSSL 4 update was noted in mid-April for compatibility. |
-
-### 2. System Dependencies
-A total of **111 packages** on your system depend directly on `libopenssl3`. The most critical ones include:
-*   **Core Services**: `systemd`, `openssh-server`, `dbus`, `krb5`.
-*   **Networking/Tools**: `curl`, `wget`, `rsync`, `git-core`, `sudo`, `bind-utils`.
-*   **Languages/Runtimes**: `python313-base`, `nodejs24`, `ruby4.0`, `perl-Net-SSLeay`.
-
-### 3. Impact on Dependent Packages
-Several major dependents mentioned the OpenSSL updates in their recent changelogs:
-
-*   **`curl` (8.20.0, April 28 - May 4, 2026)**:
-    *   Added fixes specifically for **OpenSSL 4.0.0-beta1** compatibility.
-    *   Improved OpenSSL `channel_binding` lookups.
-    *   Addressed multiple CVEs (CVE-2026-4873, etc.) related to connection reuse and TLS requirements.
-*   **`python313-cryptography` (48.0.0, May 9, 2026)**:
-    *   Added support for **Post-Quantum algorithms** (ML-KEM, ML-DSA) when used with **OpenSSL 3.5.0 or later**.
-    *   Updated wheels to be compiled with **OpenSSL 4.0.0**.
-    *   Dropped support for OpenSSL < 3.0.0.
-*   **`python313-certifi` (May 19, 2026)**:
-    *   Added a new build requirement for `openssl` to handle the `/etc/ssl/ca-bundle.pem` generation.
-*   **`systemd` (May 11-17, 2026)**:
-    *   While not explicitly citing the OpenSSL version bump in the last week, it received fixes for `cryptsetup` TPM device handling and `udev` dependencies which are closely tied to the system's cryptographic stack.
+| **OpenSUSE** | `3.5.3+` | 2026-05-12 | Performance optimizations for POWER architectures; post-quantum crypto (ML-KEM, ML-DSA). |
+| **Fedora** | `3.5.6-1` | 2026-04-19 | Earlier adoption of the 3.5.x branch; focus on general stability and security bugfixes. |
+| **Ubuntu** | `3.5.5-1` | 2026-04-07 | Transitioned to 3.5.x in early April; maintains both 3.5.x (Noble) and 3.0.x (Jammy) branches. |
 
 ### Summary
-The update you noticed "last week" likely refers to the **OpenSUSE performance update (May 12)** or the ripple effect of **OpenSSL 4.0.0 compatibility fixes** hitting stable repositories for `curl` and `python-cryptography` during the first half of May. Your system is largely transitioned to the 3.5.x branch, with 4.0.0 support already being staged in core networking and development tools.
-
-**Recommendation**: Ensure `libopenssl3` and `curl` are updated together, as recent `curl` releases specifically address security regressions when reusing TLS connections with the newer OpenSSL backends.
+The update you likely received "last week" was the **OpenSUSE optimization pass** for OpenSSL 3.5, which focused heavily on **Post-Quantum Cryptography (PQC)** support and hardware-specific optimizations. While Fedora and Ubuntu updated to 3.5.x slightly earlier, your local system's dependent packages (like `python313-certifi`) have only recently been adjusted to align with these changes. The primary impact is improved performance on specific CPUs and readiness for future cryptographic standards.

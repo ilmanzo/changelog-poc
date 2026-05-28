@@ -1,27 +1,34 @@
-I have analysed the current status of **openssl** and **libopenssl3** across Bugzilla, openQA, and recent changelogs.
+The following is the QA triage status for the **openssl** package, based on recent changelogs, Bugzilla reports, and openQA test coverage.
 
-### 1. Bugzilla Bugs
-Most recent bugs for `openssl` are **RESOLVED**, including critical side-channel vulnerabilities (Minerva) and FIPS integration issues. However, there are notable open items:
-*   **bsc#1259271 (NEW):** A QE-filed bug for `libopenssl3` reporting that the **openQA test `ulp_openssl` fails** due to a dependency mismatch (`libopenssl3` requirement cannot be provided).
-*   **bsc#760296 (NEW):** A long-standing feature request to implement `EMPTY_FRAGMENTS` for TLSv1 as a BEAST workaround.
-*   **bsc#1242046 (RESOLVED):** Recently fixed issue where openQA reported an "invalid algorithm found" in FIPS mode for OpenSSL 3.5.
+### 1. Most Recent Changelog Entries
+The package is currently on the **3.5.x** branch, with frequent updates tracking upstream:
+*   **3.5.3 (2025-09-16):** Current stable version.
+*   **3.5.2 (2025-08-04):** Maintenance update.
+*   **3.5.1 (2025-07-06):** Maintenance update.
+*   **3.5.0 (2025-04-03):** Initial 3.5 release, which introduced new features and triggered several QA regressions.
 
-### 2. openQA Test Coverage
-*   **openssl:** Has **26 active tests** recorded, including:
-    *   **FIPS validation:** `openssl_fips_alglist`, `openssl_fips_cipher`, `openssl_fips_hash`.
-    *   **Modern Cryptography:** `openssl_pqc` (Post-Quantum Cryptography), `openssl_alpn`.
-    *   **Service Integration:** Tests for `nginx`, `389ds_server`, `rsyslog`, and `openvpn`.
-*   **libopenssl3:** Currently has **0 recorded tests** in the mapping database, despite being flagged by `find-untested-changes` for having 14 recent changelog entries.
+### 2. Bugzilla Status (TestCatalog Analytics)
+A total of 10 relevant bugs were identified. Most critical issues found during the 3.5 upgrade cycle have been resolved:
+*   **bsc#1243431 (RESOLVED):** Critical issue where `sss_ssh_authorizedkeys` failed to retrieve public keys with the latest OpenSSL.
+*   **bsc#1242046 (RESOLVED):** FIPS regression where openQA reported an "invalid algorithm found" in OpenSSL 3.5.
+*   **bsc#1240378 (RESOLVED):** Security fix for the "Minerva" side-channel vulnerability in P-384.
+*   **bsc#1242787 (RESOLVED):** Improvements for "Secure Execution" (s390x) environments.
+*   **bsc#760296 (NEW):** A legacy feature request for TLSv1 `EMPTY_FRAGMENTS` (workaround for BEAST) remains open but is largely obsolete for modern deployments.
 
-### 3. Recent Changelog Entries (May 2026)
-The package is highly active, with the most recent entries including:
-*   **2026-05-12:** POWER performance enhancements and optimized **MLDSA NTT** (Module-Lattice-Based Digital Signature Algorithm).
-*   **2026-03-25:** A major security roll-up fixing **6 CVEs** (including CVE-2026-28387 and CVE-2026-31790) related to NULL pointer dereferences and heap buffer overflows.
-*   **2026-01-29:** Refinement of `ulp-macros` (User-level Protocol) which links to the failing `ulp_openssl` test.
+### 3. openQA Test Coverage
+There are **26 test modules** actively exercising `openssl`, showing a robust testing suite:
+*   **FIPS Compliance:** Extensive coverage including `openssl_fips_alglist`, `openssl_fips_cipher`, `openssl_fips_hash`, and public key checks (RSA/DSA).
+*   **Modern Protocols:** Tests for **TLS 1.3**, **ALPN**, and **Post-Quantum Cryptography (PQC)** via `openssl_pqc` and `oqs_provider_openssl`.
+*   **Service Integration:** Verified against major consumers like **NGINX**, **OpenVPN**, **389 Directory Server**, **Valkey**, and **rsyslog**.
 
-### 4. QA Triage Summary
-*   **Coverage Gap:** While the `openssl` binary package is well-covered, the **`libopenssl3` subpackage represents a triage gap**. It is modified frequently but lacks formal test mapping in the catalog.
-*   **Active Regression:** The open bug **bsc#1259271** indicates a current breakage in the `ulp_openssl` test suite, specifically affecting the `x86-64-v3` architecture.
-*   **Feature Verification:** Several new features (MLDSA, optimized NTT) were added in May 2026 but do not yet have corresponding named tests in the `get-test-coverage` output, suggesting they are either covered by generic suites or represent new coverage requirements.
+### 4. QA Triage Analysis & Gaps
+*   **Regression Detection:** The system is highly effective. **bsc#1242046** proves that openQA is actively catching breaking changes in FIPS providers before they reach stable users.
+*   **Coverage Gaps:** 
+    *   **QUIC:** While OpenSSL 3.x introduced native QUIC support, there is no dedicated QUIC test module listed in the current coverage.
+    *   **Secure Execution:** Although the bug for Secure Execution improvements is resolved, there isn't a clearly named openQA module targeting this specific platform feature in the `openssl` scope.
+*   **SSH/SSSD Integration:** The recent failure in `sss_ssh_authorizedkeys` suggests that while service integration is broad, the specific edge cases in public key parsing for SSH authentication were a blind spot that may require more focused integration tests.
 
-**Recommendation:** Update the TestCatalog mapping to associate `ulp_openssl` and related library-level tests with `libopenssl3` to clear the "untested" flag and track the resolution of the pending dependency failure.
+### Summary QA Triage Status
+**STATUS: HEALTHY.** The `openssl` package has one of the most comprehensive test suites in the distribution. The triage process is proactive, with openQA successfully identifying regressions in new major releases (3.5.0). Most reported bugs are related to specific security certifications or deep-stack integration issues (SSSD/SSH) rather than core library instability.
+
+**Recommendation:** Consider adding a dedicated test for **QUIC connectivity** and expanding sssd integration tests to prevent a recurrence of the SSH public key retrieval issue.

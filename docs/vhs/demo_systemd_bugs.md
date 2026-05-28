@@ -66,3 +66,69 @@ include `boot` and `resolved` modules.
 <!-- /demo-output:demo_bugs -->
 
 ![QA triage -- systemd](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_systemd_bugs.gif)
+
+<!-- demo-output:demo_systemd_bugs -->
+```console
+$ gemini -y -p "Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."
+
+For **systemd**, here is the current QA status based on Bugzilla, openQA coverage, and recent
+activity:
+
+### 1. Bugzilla Bugs (Active)
+There is **one critical active bug** that requires immediate attention:
+*   **[NEW] bsc#1259761**: Scriptlets failure when installing `systemd-257.10-160000.1.1`. This
+indicates a regression in the package installation logic.
+
+Several recent bugs have been resolved, including fixes for:
+*   **bsc#1261978 (CVE-2026-40224)**: Unprivileged shell access to root namespace via `machined`.
+*   **bsc#1263117**: Segfault in `cryptsetup` when using keyfiles with TPM devices.
+*   **bsc#1259418 (CVE-2026-29111)**: Improper cgroup path validation in `core`.
+
+### 2. openQA Test Coverage
+The current suite includes **14 tests** exercising:
+*   **Core Services**: `journalctl` (levels and basic), `verify_default_target`.
+*   **Storage/Security**: `cryptsetup`, `udev_no_symlink`.
+*   **Network**: `wireguard`, `wireguard_nm`, `wicked`.
+*   **Installation**: `autoyast_smoke`, `autoyast/repos`.
+
+### 3. Recent Changelog Highlights
+*   **May 2026**: Added weak runtime dependency on `libtss2-tcti-device0` for `udev` and fixed
+`vconsole-setup` font issues (**bsc#1212970**).
+*   **March 2026**: Upgraded to **v260.1**, which officially **dropped support for SysV service
+scripts**.
+*   **March 2026**: Fixed `systemd-update-helper` to prevent incorrect skipping of `systemctl
+disable` during package removal (**bsc#1245551**).
+
+### 4. Gaps in Coverage & Triage Status
+
+| Feature | Recent Activity / Bug | Test Coverage Status |
+| :--- | :--- | :--- |
+| **Package Scriptlets** | **bsc#1259761 (NEW)** | **GAP**: Basic `autoyast_smoke` failed to prevent
+this install-time regression. |
+| **Machined / Nspawn** | **CVE-2026-40224**, **CVE-2026-4105** | **GAP**: No direct tests for
+`machined` or `nspawn` validation in the systemd suite. |
+| **vconsole-setup** | bsc#1212970 (Recent fix) | **GAP**: Lacks dedicated functional tests for
+console font setting. |
+| **SysV Migration** | Support dropped in v260.1 | **GAP**: No explicit test verifying the absence
+of SysV side-effects. |
+| **Cryptsetup / TPM** | bsc#1263117 (Fixed) | **COVERED**: Validated by
+`tests/console/cryptsetup.pm`. |
+
+### Summary QA Triage
+The **QA status is at risk** due to the active scriptlet failure (**bsc#1259761**), which suggests
+that existing installation tests are not granular enough to catch macro/scriptlet regressions.
+
+While core features like the **Journal** and **Cryptsetup** have solid coverage, there is a
+**significant validation gap** around **container-related security fixes** (`machined`, `nspawn`)
+and **system maintenance utilities** (`systemd-update-helper`). Triage efforts should prioritize
+adding regression tests for the installation scriptlets and the recently patched security
+vulnerabilities in `machined`.
+
+Strategic Intent: Investigate systemd QA status: bugs, test coverage, and recent changes.
+Summary: I gathered Bugzilla bugs, openQA test coverage, and recent changelog entries for 'systemd'.
+I identified a critical NEW bug (bsc#1259761) regarding scriptlet failures and noted coverage gaps
+in machined, nspawn, and vconsole-setup despite recent security fixes and architectural changes
+(SysV removal). Final report provided a detailed triage status.
+title: Investigating systemd QA Status
+```
+<!-- /demo-output:demo_systemd_bugs -->
