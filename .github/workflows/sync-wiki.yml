@@ -1,0 +1,32 @@
+name: Sync wiki/ to GitHub Wiki
+
+# Push contents of wiki/ to https://github.com/ilmanzo/changelog-poc.wiki.git
+# whenever wiki/* changes on main. Manual dispatch is also supported.
+#
+# Prerequisite: the GitHub Wiki must be enabled in the repo settings AND
+# initialised (at least one page created via the web UI), otherwise the
+# .wiki.git repo does not exist and the action fails on first push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/sync-wiki.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Publish wiki/ to GitHub Wiki
+        uses: Andrew-Chen-Wang/github-wiki-action@v4
+        with:
+          path: wiki
+          # Default behaviour: commit message includes the source commit SHA.
