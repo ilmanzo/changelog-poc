@@ -34,16 +34,35 @@ inject_into_page() {
 
     python3 - "$page" "$start" "$end" "$prompt" "$output" <<'PY'
 import sys
+import textwrap
 from pathlib import Path
 
 page_path, start, end, prompt, output = sys.argv[1:]
 text = Path(page_path).read_text()
 
+def wrap_output(raw, width=100):
+    lines = []
+    for line in raw.splitlines():
+        if len(line) <= width:
+            lines.append(line)
+        else:
+            stripped = line.lstrip()
+            indent = line[: len(line) - len(stripped)]
+            wrapped = textwrap.fill(
+                stripped,
+                width=max(width - len(indent), 40),
+                subsequent_indent=indent,
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+            lines.append(indent + wrapped)
+    return "\n".join(lines)
+
 block = (
     f"{start}\n"
     f"```console\n"
     f'$ gemini -y -p "{prompt}"\n\n'
-    f"{output}\n"
+    f"{wrap_output(output)}\n"
     f"```\n"
     f"{end}"
 )

@@ -11,7 +11,9 @@ lack test coverage.
 
 <!-- demo-output:demo_bugs -->
 ```console
-$ gemini -y -p "Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."
+$ gemini -y -p "Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and
+the most recent changelog entries. Are there any open bugs about features that lack test coverage?
+Summarise the QA triage status."
 
 Here is the QA triage and test coverage summary for **systemd**:
 
@@ -36,14 +38,18 @@ There are **14** test modules currently mapping to `systemd` coverage:
 
 ### 3. Recent Changelog Highlights (v260.1 Upgrade)
 The package was recently upgraded to **v260.1**, introducing several structural changes:
-*   **Dropped Support:** System V service scripts and ancient obsoletes (predating 2020) were removed.
-*   **Subpackage Splits:** `systemd-boot` (now on loongarch64) and `systemd-container` were split into dedicated packages.
+*   **Dropped Support:** System V service scripts and ancient obsoletes (predating 2020) were
+removed.
+*   **Subpackage Splits:** `systemd-boot` (now on loongarch64) and `systemd-container` were split
+into dedicated packages.
 *   **Security:** Fixed `machined` unprivileged shell access (**CVE-2026-40224**).
 
 ### 4. Test Coverage Gaps & Triage Summary
 **Are there open bugs about features that lack test coverage?**
-**Yes.** There is a significant gap between the indexed bugs/recent features and the current openQA coverage:
-*   **Installation Regressions:** The open bug **bsc#1259761** (scriptlet failures) lacks a dedicated package-update/scriptlet validation test in the openQA list.
+**Yes.** There is a significant gap between the indexed bugs/recent features and the current openQA
+coverage:
+*   **Installation Regressions:** The open bug **bsc#1259761** (scriptlet failures) lacks a
+dedicated package-update/scriptlet validation test in the openQA list.
 *   **Feature Gaps:** Despite the recent v260 upgrade, there are no explicit test modules for:
     *   `systemd-boot` (recent split-off)
     *   `systemd-resolved` (recent fixes mentioned in changelog)
@@ -51,7 +57,11 @@ The package was recently upgraded to **v260.1**, introducing several structural 
     *   `systemd-timedated` (subject of recently resolved bsc#1253281)
 
 **QA Triage Summary:**
-The triage status is **Active but Narrow**. While core components (Journal, Udev, Network) are well-covered by openQA, the transition to **v260.1** and the recent regressions in **v257.x** scriptlets reveal a need for more granular testing of sub-packages and installation triggers. Triage efforts should focus on verifying the `bsc#1259761` fix and expanding the `testcatalog` mapping to include `boot` and `resolved` modules.
+The triage status is **Active but Narrow**. While core components (Journal, Udev, Network) are
+well-covered by openQA, the transition to **v260.1** and the recent regressions in **v257.x**
+scriptlets reveal a need for more granular testing of sub-packages and installation triggers. Triage
+efforts should focus on verifying the `bsc#1259761` fix and expanding the `testcatalog` mapping to
+include `boot` and `resolved` modules.
 ```
 <!-- /demo-output:demo_bugs -->
 
