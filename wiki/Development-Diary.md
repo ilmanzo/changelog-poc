@@ -134,9 +134,9 @@ that generated code still needs a human pass.
 
 ### Demo
 
-![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
-
 *Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
+
+![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
 
 ---
 
@@ -157,9 +157,9 @@ The cost/complexity ratio was wrong for a three-day sprint. Deferred.
 
 ### Demo
 
-![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
-
 *Asking: "show me 5 packages with recent security fixes that don't have openQA coverage"*
+
+![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
 
 ---
 
@@ -233,9 +233,9 @@ security, and asyncio patterns. First run: 45 issues. All cleared in two commits
 
 ### Demo
 
-![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
-
 *Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
+
+![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
 
 ### Day 3, end of day: configuration and documentation
 
@@ -256,9 +256,9 @@ with animated GIF demos embedded directly in the page.
 
 ### Demo
 
-![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
-
 *Asking: "find network-related packages whose changelog entries mention new command line flags in the last 2 months"*
+
+![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
 
 ---
 
@@ -513,11 +513,11 @@ Following the TestCatalog integration a design review surfaced a cleaner interfa
 
 The most complex demo so far -- one prompt, three tool calls, a real cross-distro answer:
 
-![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
-
 *Asking: "openssl was updated last week. Which packages in my system depend on it, and did
 their changelogs mention that update? Give me a cross-distro status comparison between
 OpenSUSE, Ubuntu and Fedora. Summarise all findings."*
+
+![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
 
 The MCP client picks `get_reverse_dependencies` to find local dependents, `get_dependency_changes`
 to check their changelogs, and `compare_versions` for the cross-distro version table -- without

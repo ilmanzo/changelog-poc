@@ -134,9 +134,9 @@ that generated code still needs a human pass.
 
 ### Demo
 
-![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
-
 *Asking: "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
+
+![Changelog query demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
 
 ---
 
@@ -157,9 +157,9 @@ The cost/complexity ratio was wrong for a three-day sprint. Deferred.
 
 ### Demo
 
-![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
-
 *Asking: "show me 5 packages with recent security fixes that don't have openQA coverage"*
+
+![Untested changes demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_untested.gif)
 
 ---
 
@@ -233,9 +233,9 @@ security, and asyncio patterns. First run: 45 issues. All cleared in two commits
 
 ### Demo
 
-![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
-
 *Asking: "show me a summary of packages updated since last month with CVE fixes related to privilege escalation"*
+
+![CVE timeline demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cve_timeline.gif)
 
 ### Day 3, end of day: configuration and documentation
 
@@ -256,135 +256,9 @@ with animated GIF demos embedded directly in the page.
 
 ### Demo
 
-![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
-
 *Asking: "find network-related packages whose changelog entries mention new command line flags in the last 2 months"*
 
----
-
-## After the sprint -- production hardening
-
-The three days got the surface area right. The week that followed made it boring enough to run
-unattended.
-
-**Stale-data is a feature, not a failure.** When OBS or Pagure is unreachable, the tool no longer
-returns an error -- it serves the previously-cached data and prepends a banner:
-`WARNING: source fetch failed; serving cached data from 2026-05-23T14:02Z`. The MCP client sees
-the warning, the user knows the timestamp, and the agent can decide whether to trust it. Hard
-failures are reserved for things that genuinely cannot be answered.
-
-**Tiered cache by source.** News feeds, package changelogs, and spec files all change on
-different timescales. The `manifest` table grew a `kind` discriminator -- news every 24h,
-changelogs every 24h, specs every 7d. Saves bandwidth and respects upstream rate limits.
-
-**Worker as a systemd timer, not a daemon.** The ingestion worker runs once per hour as a
-`Type=oneshot` user unit. No long-lived process, no PID file, no supervisor --
-`systemctl --user status` and `journalctl --user -u rpm-mcp-worker` are the entire ops interface.
-
-**Fast-fail for unindexed packages.** First query on a never-seen package used to block for
-5--35 seconds while ingest ran inline. Now the tool returns "package not yet indexed; ingestion
-queued" immediately and dispatches the ingest as a background task. Concurrent calls for the same
-package share one task. Cross-process races are absorbed by `ON CONFLICT DO NOTHING` upserts.
-
-**Security cleanup.** Dropped `http://` from allowed git URL schemes, replaced the regex-based RSS
-parser with `defusedxml.ElementTree` to neutralise XXE, replaced load-bearing `assert`s with
-explicit `raise` so `python -O` doesn't silently strip safety checks. Subprocess calls are
-timeout-capped; a wedged `git clone` no longer hangs a worker slot indefinitely.
-
-**Prompt-injection defence.** Tool output is wrapped in `<rpm-mcp:untrusted-data sources="...">` so
-a downstream LLM treats it as data, not instructions. `scrub_external` truncates entries at 8 KB
-and counts injection marker tokens -- if >= 2 markers are found, it logs a warning.
-
----
-
-## Cross-distro support (shipped post-sprint)
-
-**F2a -- FedoraSource.** Fedora moved to `rpmautospec`; most specs have `%autochangelog` rather
-than a static `%changelog`. Fix: try the standalone `changelog` file in dist-git first, fall back
-to `%changelog` extraction. Auto-detect format by header signature
-(`* Day Mon DD YYYY Author` = RPM style; `---` separators = OBS style).
-
-**F2b -- UbuntuSource.** The `changelogs.ubuntu.com` binary endpoint returns 404 for most packages.
-Fix: switched to the Launchpad HTML changelog page, extract `<pre>` blocks, unescape HTML entities,
-parse with the existing Debian changelog parser.
-
-**F3 -- Upstream release notes.** `IngestService._resolve_upstream_url` reads spec `URL:` /
-`Source0:` tags and OBS `_service` XML to find the upstream forge URL.
-`url_router.parse_upstream_url` dispatches to `GitHubSource` or `GitLabSource` which fetch
-release notes via the respective REST APIs and store them as changelog entries tagged
-`source='github_release'` or `source='gitlab_release'`. Optional auth via `GITHUB_TOKEN` /
-`GITLAB_TOKEN` environment variables (GitHub anonymous API limit: 60 req/hr).
-
----
-
-## Design decisions log
-
-| ID | Decision | Rationale |
-|---|---|---|
-| DD1 | Single PostgreSQL backing store | One container, one pool, one migration file. pgvector + pg_trgm cover vectors + FTS. |
-| DD2 | Content-addressed UUID PKs | `uuid5(NAMESPACE, pkg+content)` -- same block from multiple sources converges to one row. |
-| DD3 | Stale-data with WARNING banner | Serve cached data on source failure rather than erroring. Let the LLM client decide trust. |
-| DD4 | Per-capability source dispatch | Sources implement only what they have. Registry routes by capability. |
-| DD5 | No embedded LLM | MCP clients have their own LLM. The server returns raw data. |
-| DD6 | Worker as systemd timer | `Type=oneshot`, hourly, `RandomizedDelaySec=15min`. No daemon. |
-| DD7 | Fast-fail readiness probe | Never block on first-time ingest. Return "queued" immediately, background dispatch. |
-| DD8 | Tiered cache TTL | News 24h, changelogs 24h, specs 7d. `manifest.kind` discriminator. |
-| DD9 | No Podman dependency | Macro expansion cut per scope. Security risk + complexity too high for sprint. |
-| DD10 | Ingest coalescing | `_pending: dict[str, asyncio.Task]` -- concurrent calls for same package share one task. |
-| DD11 | Single HTTP stack (aiohttp) | Dropped httpx after it crept in alongside aiohttp. One session factory, one retry policy. |
-| DD12 | Relative imports inside src/ | Enforced by ruff. Prevents accidental coupling to the install path. |
-| DD13 | .env file autoload | pydantic-settings loads `.env` from the working directory; OS env still wins. One config system. |
-
----
-
-## TestCatalog integration (post-sprint)
-
-The existing openQA coverage source works by cloning `os-autoinst-distri-opensuse` locally and
-scanning `.pm` files for `# Package:` headers. This requires a fresh clone and a full disk scan
-on every refresh cycle.
-
-SUSE runs a live HTTP service -- the TestCatalog API (`testcatalog.qa.suse.de:3001`) -- that
-exposes the same metadata through a searchable REST API. It is effectively the same test repo
-served as a microservice, with a Swagger UI and OpenSearch-backed full-text search.
-
-### Why add it
-
-Three reasons:
-
-1. **No local clone needed.** `GET /api/v1/tests?q=vim&limit=200` returns test entries with
-   `sourcePath`, `comments` (containing `Package:` / `Summary:` headers), and `fullPath`
-   (direct GitHub URL). The same data, without cloning gigabytes.
-
-2. **Dual-source gap detection.** `find_untested_changes` now flags packages that have neither
-   openQA rows (from the local scan) nor TestCatalog rows (from the API). False positives drop
-   because the two sources have slightly different coverage -- a package not yet in the local
-   clone may already be in the API's index.
-
-3. **Future analytics.** The API also exposes `/api/v1/analytics/search` with `scope=bugs,openqa,gitlog`.
-   That opens the door to "which bugs are associated with tests for this package?" -- a future
-   `find_bugs_in_tests` tool without new data ingestion.
-
-### What changed
-
-The `openqa_tests` table gained a `source TEXT NOT NULL DEFAULT 'openqa'` column (migration
-`004_testcatalog.sql`). The UNIQUE constraint now covers `(package_id, test_path, source)`,
-so the same `.pm` path can exist once per source without conflict.
-
-`upsert_openqa(tests, source="testcatalog")` and `get_openqa_tests(package, source=...)` both
-accept an optional `source` parameter. Callers that don't pass it get the old behavior.
-
-A new `TestCatalogClient` (aiohttp, same session factory as all other HTTP sources) handles
-paging, package filtering (same `_PKG_RE` regex as `openqa_fetcher.py`), and content sanitization.
-
-The new `get_test_coverage(package, source=None)` MCP tool unifies openQA and TestCatalog
-data; it queries the live TestCatalog API when the cache is stale, writes results to the DB,
-and falls back to cached rows with a WARNING banner when the API is unreachable.
-(An earlier `get_testcatalog_tests` was superseded by this unified tool.)
-
-### Auth
-
-Read endpoints are public -- no credentials required. A Bearer JWT is accepted for write
-operations (summary reviews). `TESTCATALOG_API_KEY` env var carries the token when set.
+![Semantic search demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_search.gif)
 
 ---
 
@@ -513,17 +387,143 @@ Following the TestCatalog integration a design review surfaced a cleaner interfa
 
 The most complex demo so far -- one prompt, three tool calls, a real cross-distro answer:
 
-![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
-
 *Asking: "openssl was updated last week. Which packages in my system depend on it, and did
 their changelogs mention that update? Give me a cross-distro status comparison between
 OpenSUSE, Ubuntu and Fedora. Summarise all findings."*
+
+![Cross-distro demo](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_cross_distro.gif)
 
 The MCP client picks `get_reverse_dependencies` to find local dependents, `get_dependency_changes`
 to check their changelogs, and `compare_versions` for the cross-distro version table -- without
 the prompt naming any tool.
 
 ---
+
+---
+
+## After the sprint -- production hardening
+
+The three days got the surface area right. The week that followed made it boring enough to run
+unattended.
+
+**Stale-data is a feature, not a failure.** When OBS or Pagure is unreachable, the tool no longer
+returns an error -- it serves the previously-cached data and prepends a banner:
+`WARNING: source fetch failed; serving cached data from 2026-05-23T14:02Z`. The MCP client sees
+the warning, the user knows the timestamp, and the agent can decide whether to trust it. Hard
+failures are reserved for things that genuinely cannot be answered.
+
+**Tiered cache by source.** News feeds, package changelogs, and spec files all change on
+different timescales. The `manifest` table grew a `kind` discriminator -- news every 24h,
+changelogs every 24h, specs every 7d. Saves bandwidth and respects upstream rate limits.
+
+**Worker as a systemd timer, not a daemon.** The ingestion worker runs once per hour as a
+`Type=oneshot` user unit. No long-lived process, no PID file, no supervisor --
+`systemctl --user status` and `journalctl --user -u rpm-mcp-worker` are the entire ops interface.
+
+**Fast-fail for unindexed packages.** First query on a never-seen package used to block for
+5--35 seconds while ingest ran inline. Now the tool returns "package not yet indexed; ingestion
+queued" immediately and dispatches the ingest as a background task. Concurrent calls for the same
+package share one task. Cross-process races are absorbed by `ON CONFLICT DO NOTHING` upserts.
+
+**Security cleanup.** Dropped `http://` from allowed git URL schemes, replaced the regex-based RSS
+parser with `defusedxml.ElementTree` to neutralise XXE, replaced load-bearing `assert`s with
+explicit `raise` so `python -O` doesn't silently strip safety checks. Subprocess calls are
+timeout-capped; a wedged `git clone` no longer hangs a worker slot indefinitely.
+
+**Prompt-injection defence.** Tool output is wrapped in `<rpm-mcp:untrusted-data sources="...">` so
+a downstream LLM treats it as data, not instructions. `scrub_external` truncates entries at 8 KB
+and counts injection marker tokens -- if >= 2 markers are found, it logs a warning.
+
+---
+
+## Cross-distro support (shipped post-sprint)
+
+**F2a -- FedoraSource.** Fedora moved to `rpmautospec`; most specs have `%autochangelog` rather
+than a static `%changelog`. Fix: try the standalone `changelog` file in dist-git first, fall back
+to `%changelog` extraction. Auto-detect format by header signature
+(`* Day Mon DD YYYY Author` = RPM style; `---` separators = OBS style).
+
+**F2b -- UbuntuSource.** The `changelogs.ubuntu.com` binary endpoint returns 404 for most packages.
+Fix: switched to the Launchpad HTML changelog page, extract `<pre>` blocks, unescape HTML entities,
+parse with the existing Debian changelog parser.
+
+**F3 -- Upstream release notes.** `IngestService._resolve_upstream_url` reads spec `URL:` /
+`Source0:` tags and OBS `_service` XML to find the upstream forge URL.
+`url_router.parse_upstream_url` dispatches to `GitHubSource` or `GitLabSource` which fetch
+release notes via the respective REST APIs and store them as changelog entries tagged
+`source='github_release'` or `source='gitlab_release'`. Optional auth via `GITHUB_TOKEN` /
+`GITLAB_TOKEN` environment variables (GitHub anonymous API limit: 60 req/hr).
+
+---
+
+## Design decisions log
+
+| ID | Decision | Rationale |
+|---|---|---|
+| DD1 | Single PostgreSQL backing store | One container, one pool, one migration file. pgvector + pg_trgm cover vectors + FTS. |
+| DD2 | Content-addressed UUID PKs | `uuid5(NAMESPACE, pkg+content)` -- same block from multiple sources converges to one row. |
+| DD3 | Stale-data with WARNING banner | Serve cached data on source failure rather than erroring. Let the LLM client decide trust. |
+| DD4 | Per-capability source dispatch | Sources implement only what they have. Registry routes by capability. |
+| DD5 | No embedded LLM | MCP clients have their own LLM. The server returns raw data. |
+| DD6 | Worker as systemd timer | `Type=oneshot`, hourly, `RandomizedDelaySec=15min`. No daemon. |
+| DD7 | Fast-fail readiness probe | Never block on first-time ingest. Return "queued" immediately, background dispatch. |
+| DD8 | Tiered cache TTL | News 24h, changelogs 24h, specs 7d. `manifest.kind` discriminator. |
+| DD9 | No Podman dependency | Macro expansion cut per scope. Security risk + complexity too high for sprint. |
+| DD10 | Ingest coalescing | `_pending: dict[str, asyncio.Task]` -- concurrent calls for same package share one task. |
+| DD11 | Single HTTP stack (aiohttp) | Dropped httpx after it crept in alongside aiohttp. One session factory, one retry policy. |
+| DD12 | Relative imports inside src/ | Enforced by ruff. Prevents accidental coupling to the install path. |
+| DD13 | .env file autoload | pydantic-settings loads `.env` from the working directory; OS env still wins. One config system. |
+
+---
+
+## TestCatalog integration (post-sprint)
+
+The existing openQA coverage source works by cloning `os-autoinst-distri-opensuse` locally and
+scanning `.pm` files for `# Package:` headers. This requires a fresh clone and a full disk scan
+on every refresh cycle.
+
+SUSE runs a live HTTP service -- the TestCatalog API (`testcatalog.qa.suse.de:3001`) -- that
+exposes the same metadata through a searchable REST API. It is effectively the same test repo
+served as a microservice, with a Swagger UI and OpenSearch-backed full-text search.
+
+### Why add it
+
+Three reasons:
+
+1. **No local clone needed.** `GET /api/v1/tests?q=vim&limit=200` returns test entries with
+   `sourcePath`, `comments` (containing `Package:` / `Summary:` headers), and `fullPath`
+   (direct GitHub URL). The same data, without cloning gigabytes.
+
+2. **Dual-source gap detection.** `find_untested_changes` now flags packages that have neither
+   openQA rows (from the local scan) nor TestCatalog rows (from the API). False positives drop
+   because the two sources have slightly different coverage -- a package not yet in the local
+   clone may already be in the API's index.
+
+3. **Future analytics.** The API also exposes `/api/v1/analytics/search` with `scope=bugs,openqa,gitlog`.
+   That opens the door to "which bugs are associated with tests for this package?" -- a future
+   `find_bugs_in_tests` tool without new data ingestion.
+
+### What changed
+
+The `openqa_tests` table gained a `source TEXT NOT NULL DEFAULT 'openqa'` column (migration
+`004_testcatalog.sql`). The UNIQUE constraint now covers `(package_id, test_path, source)`,
+so the same `.pm` path can exist once per source without conflict.
+
+`upsert_openqa(tests, source="testcatalog")` and `get_openqa_tests(package, source=...)` both
+accept an optional `source` parameter. Callers that don't pass it get the old behavior.
+
+A new `TestCatalogClient` (aiohttp, same session factory as all other HTTP sources) handles
+paging, package filtering (same `_PKG_RE` regex as `openqa_fetcher.py`), and content sanitization.
+
+The new `get_test_coverage(package, source=None)` MCP tool unifies openQA and TestCatalog
+data; it queries the live TestCatalog API when the cache is stale, writes results to the DB,
+and falls back to cached rows with a WARNING banner when the API is unreachable.
+(An earlier `get_testcatalog_tests` was superseded by this unified tool.)
+
+### Auth
+
+Read endpoints are public -- no credentials required. A Bearer JWT is accepted for write
+operations (summary reviews). `TESTCATALOG_API_KEY` env var carries the token when set.
 
 ## What's next
 

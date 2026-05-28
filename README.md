@@ -2,6 +2,14 @@
 
 MCP server for querying openSUSE/Fedora RPM changelogs, specs, CVEs, news, and openQA test mappings. Backed by PostgreSQL + pgvector.
 
+**Documentation:**
+- [User Guide](docs/user-guide.md) -- deploy, configure, ingest, query
+- [Developer Guide](docs/developer-guide.md) -- code structure, patterns, how to extend
+- [Architecture](docs/architecture.md) -- diagrams, env vars, source registry
+- [Schema](docs/schema.md) -- database tables and indexes
+- [Threat Model](docs/THREAT_MODEL.md) -- security boundaries
+- [Dev Diary](docs/dev-diary.md) -- design history
+
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
