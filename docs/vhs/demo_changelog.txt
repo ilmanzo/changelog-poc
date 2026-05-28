@@ -1,19 +1,3 @@
-# Demo: Vim changelog query
-
-Compare two versions of a package and surface the most relevant changes between them.
-The MCP server queries cached OBS and Gitea changelogs, filters by version range, and
-returns a ranked summary.
-
-**Prompt:** *"What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
-
-![Vim changelog query](https://raw.githubusercontent.com/ilmanzo/changelog-poc/main/docs/vhs/demo_changelog.gif)
-
-## Session output
-
-<!-- demo-output:demo_changelog -->
-```console
-$ gemini -y -p "What are the 5 most relevant changes in vim between version 9.0 and 9.2?"
-
 Between version 9.0 and 9.2, Vim has undergone significant architectural and feature improvements, primarily focused on modernizing the Vim9 script language and enhancing the user interface.
 
 Based on the changelog data, here are the 5 most relevant changes:
@@ -25,5 +9,3 @@ Based on the changelog data, here are the 5 most relevant changes:
 5.  **Introduction of the `:defer` Command**: Similar to the `defer` keyword in Go, this command allows developers to schedule a function call or command to be executed automatically when the current function exits. This simplifies resource management (e.g., closing temporary buffers or files) and makes error handling more robust in scripts.
 
 Other notable mentions include the ongoing work on **GTK4 support** for the GUI version and the inclusion of **built-in EditorConfig support**, both of which further modernize the Vim ecosystem.
-```
-<!-- /demo-output:demo_changelog -->

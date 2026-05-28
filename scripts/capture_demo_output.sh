@@ -21,7 +21,9 @@ extract_prompt() {
 }
 
 run_prompt() {
-    gemini -y -p "$1" 2>/dev/null | strip_ansi
+    # Capture stdout; send stderr to /dev/null; exit 0 even if gemini fails
+    # so set -e does not abort the whole script.
+    gemini -y -p "$1" 2>/dev/null | strip_ansi || true
 }
 
 # Inject/replace the console block inside the demo page.
@@ -90,6 +92,11 @@ for tape in "${TAPES[@]}"; do
     echo "    running gemini..."
 
     output="$(run_prompt "$prompt")"
+
+    if [[ -z "${output// }" ]]; then
+        echo "    SKIP: gemini returned empty output (re-authentication may be needed)"
+        continue
+    fi
 
     # 1. Save raw .txt alongside tape and GIF
     txt="${TAPE_DIR}/${name}.txt"
