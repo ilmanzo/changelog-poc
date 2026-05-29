@@ -187,6 +187,21 @@ uv run scripts/bench.py both
 | `get_openqa_tests` | openQA test mappings |
 | `sync_package` | Force re-ingest a package |
 
+## Demos
+
+Short walkthroughs with captured gemini-cli output and GIFs:
+
+| Demo | What it shows |
+|---|---|
+| [Vim changelog query](docs/vhs/demo_changelog.md) | Diff two package versions, surface relevant changes |
+| [CVE privilege escalation timeline](docs/vhs/demo_cve_timeline.md) | Track a CVE across versions and distros |
+| [QA triage -- openssl](docs/vhs/demo_openssl_bugs.md) | Correlate bug fixes with test coverage |
+| [QA triage -- systemd](docs/vhs/demo_systemd_bugs.md) | Same pattern on a larger package |
+| [Semantic search](docs/vhs/demo_search.md) | Natural-language search over changelogs |
+| [Cross-distro dependency blast radius](docs/vhs/demo_cross_distro.md) | Map an update across openSUSE / Ubuntu / Fedora |
+| [Untested security fixes](docs/vhs/demo_untested.md) | Find security changes with no test coverage |
+| [Stale test cleanup](docs/vhs/demo_stale_tests.md) | Find tests covering dropped/removed features |
+
 ## Prompt Examples
 
 See [`prompt_examples.md`](prompt_examples.md) for a collection of useful queries and discovery patterns.

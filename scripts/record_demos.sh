@@ -12,6 +12,12 @@
 #   4. Removes the gemini registration on exit
 set -euo pipefail
 
+if [[ -f "$HOME/.gemini/.env" ]]; then
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && eval "export $line"
+    done < "$HOME/.gemini/.env"
+fi
+
 cd "$(dirname "$(readlink -f "$0")")/.."
 
 TAPE_DIR="docs/vhs"

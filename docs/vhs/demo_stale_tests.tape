@@ -11,4 +11,4 @@ Set Theme "Molokai"
 
 Type `gemini -y -p "For openSUSE Leap 16 and Tumbleweed, find packages whose recent changelogs mention dropped or removed features. For each one, show the test coverage -- are any tests now covering functionality that no longer exists? Give me a prioritised cleanup list." 2>/dev/null`
 Enter
-Sleep 3m
+Sleep 600s
