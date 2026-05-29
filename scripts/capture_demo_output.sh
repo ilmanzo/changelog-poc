@@ -20,6 +20,9 @@ if [[ -f "$HOME/.gemini/.env" ]]; then
     done < "$HOME/.gemini/.env"
 fi
 
+echo "=== Ensuring infrastructure is running ==="
+"$REPO/infra/infra.sh" start
+
 strip_ansi() { sed 's/\x1b\[[0-9;]*[mKJH]//g; s/\r//g'; }
 
 extract_prompt() {
