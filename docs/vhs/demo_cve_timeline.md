@@ -4,7 +4,8 @@ Search across all cached changelogs to find packages that fixed privilege-escala
 CVEs in the last month, ranked by date. Shows the power of semantic + FTS search
 over a unified multi-distro changelog index.
 
-**Prompt:** *"show me a summary of the packages updated since last month that have CVE fixes related to privilege escalation"*
+<!-- prompt:demo_cve_timeline -->
+<!-- /prompt:demo_cve_timeline -->
 
 ## Session output
 

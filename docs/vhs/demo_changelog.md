@@ -4,7 +4,8 @@ Compare two versions of a package and surface the most relevant changes between 
 The MCP server queries cached OBS and Gitea changelogs, filters by version range, and
 returns a ranked summary.
 
-**Prompt:** *"What are the 5 most relevant changes in vim between version 9.0 and 9.2?"*
+<!-- prompt:demo_changelog -->
+<!-- /prompt:demo_changelog -->
 
 ## Session output
 

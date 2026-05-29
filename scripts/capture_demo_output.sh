@@ -34,18 +34,21 @@ run_prompt() {
     gemini -y -p "$1" 2>/dev/null | strip_ansi || true
 }
 
-# Inject/replace the console block inside the demo page.
+# Inject/replace the prompt line and console block inside the demo page.
+# The tape is the single source of truth for the prompt text.
 inject_into_page() {
     local page="$1" name="$2" prompt="$3" output="$4"
-    local start="<!-- demo-output:${name} -->"
-    local end="<!-- /demo-output:${name} -->"
+    local pstart="<!-- prompt:${name} -->"
+    local pend="<!-- /prompt:${name} -->"
+    local ostart="<!-- demo-output:${name} -->"
+    local oend="<!-- /demo-output:${name} -->"
 
-    python3 - "$page" "$start" "$end" "$prompt" "$output" <<'PY'
+    python3 - "$page" "$pstart" "$pend" "$ostart" "$oend" "$prompt" "$output" <<'PY'
 import sys
 import textwrap
 from pathlib import Path
 
-page_path, start, end, prompt, output = sys.argv[1:]
+page_path, pstart, pend, ostart, oend, prompt, output = sys.argv[1:]
 text = Path(page_path).read_text()
 
 def wrap_output(raw, width=100):
@@ -66,21 +69,27 @@ def wrap_output(raw, width=100):
             lines.append(indent + wrapped)
     return "\n".join(lines)
 
+# Update <!-- prompt --> marker if present
+if pstart in text and pend in text:
+    s = text.index(pstart)
+    e = text.index(pend) + len(pend)
+    text = text[:s] + f'{pstart}\n**Prompt:** *"{prompt}"*\n{pend}' + text[e:]
+
+# Update <!-- demo-output --> marker
 block = (
-    f"{start}\n"
+    f"{ostart}\n"
     f"```console\n"
     f'$ gemini -y -p "{prompt}"\n\n'
     f"{wrap_output(output)}\n"
     f"```\n"
-    f"{end}"
+    f"{oend}"
 )
 
-if start in text and end in text:
-    s = text.index(start)
-    e = text.index(end) + len(end)
+if ostart in text and oend in text:
+    s = text.index(ostart)
+    e = text.index(oend) + len(oend)
     text = text[:s] + block + text[e:]
 else:
-    # Append at end as fallback
     text = text.rstrip('\n') + '\n\n' + block + '\n'
 
 Path(page_path).write_text(text)

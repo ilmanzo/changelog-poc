@@ -2,17 +2,18 @@
 
 When packages drop or remove features, the openQA tests that cover those features become
 dead weight. This demo finds packages with recently removed functionality, cross-references
-their test coverage, and produces a prioritised list of tests that are candidates for removal.
+their test coverage, and produces a prioritised list of test cases that are candidates for removal.
 
-**Prompt:** *"Find packages whose recent changelogs mention dropped or removed features. For each one, show the openQA test coverage -- are any tests now covering functionality that no longer exists? Give me a prioritised cleanup list."*
+<!-- prompt:demo_stale_tests -->
+<!-- /prompt:demo_stale_tests -->
 
 ## Session output
 
 <!-- demo-output:demo_stale_tests -->
 ```console
-$ gemini -y -p "Find packages whose recent changelogs mention dropped or removed features. For each one, show the openQA test coverage -- are any tests now covering functionality that no longer exists? Give me a prioritised cleanup list."
+$ gemini -y -p "For openSUSE Leap 16 and Tumbleweed, find packages whose recent changelogs mention dropped or removed features. For each one, show the test coverage -- are any tests now covering functionality that no longer exists? Give me a prioritised cleanup list."
 
-Based on recent changelog activity (last 90–180 days) and openQA test coverage, here is a
+Based on recent changelog activity (last 90–180 days) and test coverage, here is a
 prioritised cleanup list for packages with dropped or removed features that may have obsolete tests.
 
 ### **1. GDM / gnome-session (Priority: High)**

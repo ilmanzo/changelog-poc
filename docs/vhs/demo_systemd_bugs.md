@@ -5,7 +5,8 @@ TestCatalog analytics API, openQA test coverage, and recent changelog entries.
 The MCP client correlates all three sources and identifies open bugs that may
 lack test coverage.
 
-**Prompt:** *"Show me Bugzilla bugs filed for systemd, the openQA tests that cover systemd, and the most recent changelog entries. Are there any open bugs about features that lack test coverage? Summarise the QA triage status."*
+<!-- prompt:demo_systemd_bugs -->
+<!-- /prompt:demo_systemd_bugs -->
 
 ## Session output
 
