@@ -23,6 +23,15 @@ fi
 echo "=== Ensuring infrastructure is running ==="
 "$REPO/infra/infra.sh" start
 
+echo "=== Registering MCP server with gemini ==="
+"$REPO/scripts/register.sh" add gemini
+
+cleanup() {
+    echo "=== Removing gemini MCP registration ==="
+    "$REPO/scripts/register.sh" remove gemini
+}
+trap cleanup EXIT
+
 strip_ansi() { sed 's/\x1b\[[0-9;]*[mKJH]//g; s/\r//g'; }
 
 extract_prompt() {
