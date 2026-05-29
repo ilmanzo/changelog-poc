@@ -160,11 +160,14 @@ infra/infra.sh rm       # Remove container + data
 ## Development
 
 ```bash
-# Unit tests
-uv run pytest tests/ -v
+# Unit tests (fast, no container)
+./scripts/test.sh unit
 
-# Integration tests (spins up a real Postgres via testcontainers + podman)
-PYTHONPATH=. uv run pytest -m e2e
+# DB integration tests (requires podman socket)
+./scripts/test.sh e2e-db
+
+# All tests (406 tests, 75% coverage)
+./scripts/test.sh all
 
 # Type checking
 uv run mypy src mcp_server.py

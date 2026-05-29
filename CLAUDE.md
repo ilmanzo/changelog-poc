@@ -147,7 +147,7 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 - Phase 2 — spec assistant features: done (get_spec_details only; LLM-backed tools dropped — MCP clients have their own LLM)
 - Phase 3 — news + openQA: done (get_news, get_test_coverage, find_untested_changes, find_bugs_in_tests, get_sync_status)
 - Phase 4 — centralised worker + bench tuning: done
-- Phase 4.5 — unit tests + coverage: done (359 tests, 63% coverage)
+- Phase 4.5 — unit tests + coverage: done (406 tests, 75% coverage including e2e-db)
 - Phase 5 — production hardening: resilience, worker daemon, ops artifacts (see plan.md Phase 5 section)
 - Phase 6 — Go port (deferred)
 
