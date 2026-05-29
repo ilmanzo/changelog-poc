@@ -1,46 +1,57 @@
-Based on recent changelog activity (last 90–180 days) and openQA test coverage, here is a prioritised cleanup list for packages with dropped or removed features that may have obsolete tests.
+Based on recent changelog analysis for **openSUSE Tumbleweed** and **Leap 16** (including ALP-based SLE 16 shared components), I have identified several packages that have recently dropped or removed features. Below is a prioritized cleanup list focusing on tests that may now be covering non-existent functionality.
 
-### **1. GDM / gnome-session (Priority: High)**
-*   **Dropped Features:** **Entirely removed X11 support** (except for per-user X server for other desktops). Features like **XDCMP** and **system-wide Xserver** are gone.
-*   **Obsolete/Potentially Broken Tests:**
-    *   `tests/x11/gdm_session_switch.pm`: Likely obsolete if it tests switching to system-wide X11 sessions or XDCMP.
-    *   `tests/x11/gnomecase/gnome_classic_switch.pm`: May be obsolete if it relies on the old X11 session launch mechanism.
-    *   `tests/x11/keyboard_layout_gdm.pm`: Potentially obsolete if it targets X11-specific layout handling in the greeter.
-*   **Cleanup Action:** Audit these modules to remove XDCMP/system-Xserver test cases.
+### 1. systemd / libsystemd0 (CRITICAL)
+*   **Dropped Features:**
+    *   **`libidn`** support has been completely removed and replaced by `libidn2`.
+    *   **`libiptc`** (legacy `iptables` API) support in `systemd-networkd` and `systemd-nspawn` has been dropped; only `nftables` is now supported for NAT rules.
+    *   **Meson options** `-Dlibidn` and `-Dlibiptc` are now ignored/deprecated.
+*   **Potentially Stale Tests:**
+    *   `tests/network/wireguard_nm.pm`
+    *   `tests/network/wireguard.pm`
+    *   `tests/autoyast/wicked.pm`
+*   **Cleanup Goal:** Audit these network tests to ensure they are not relying on `iptables` for NAT configuration or checking for `libidn` link-time dependencies. Migrate logic to `nftables`.
 
-### **2. curl (Priority: High)**
-*   **Dropped Features:** **RTMP support** entirely removed. **SMB support** made opt-in (previously default). **OpenSSL-QUIC** support dropped.
-*   **Obsolete/Potentially Broken Tests:**
-    *   `tests/network/curl_client.pm`: Potentially broken if it uses `rtmp://` or `smb://` URLs (unless the latter is explicitly enabled).
-    *   `tests/network/curl_server.pm`: May be obsolete if it provides RTMP/SMB backend services for the client tests.
-*   **Cleanup Action:** Remove RTMP test cases; update SMB tests to ensure the feature is explicitly enabled in the build under test.
+### 2. GDM / GNOME Session (HIGH)
+*   **Dropped Features:**
+    *   **X11 Session Support:** GDM has entirely removed X11 support except for a legacy launch path; `gnome-session` has similarly dropped X11 session support.
+    *   **`xdm-integration`** and `update-alternatives` for display managers are being removed in SLE 16.1 / Leap 16.
+    *   **`udev-dir`** meson option entirely removed.
+*   **Potentially Stale Tests:**
+    *   `tests/x11/gdm_session_switch.pm`
+    *   `tests/x11/gnomecase/gnome_classic_switch.pm`
+    *   `tests/x11/keyboard_layout_gdm.pm`
+*   **Cleanup Goal:** Verify if "Gnome Classic" or other X11-specific session tests are still viable. Tests attempting to use `update-alternatives` for display manager selection on Leap 16 will fail.
 
-### **3. python313-cryptography (Priority: Medium)**
-*   **Dropped Features:** **Binary elliptic curves (SECT* classes)** removed. **OpenSSL 1.1.x support** removed (OpenSSL 3.0+ now required).
-*   **Obsolete/Potentially Broken Tests:**
-    *   Internal package tests or `testcatalog` entries using SECT curves.
-    *   Tests specifically verifying interoperability with OpenSSL 1.1.
-*   **Cleanup Action:** Remove tests for SECT curves and OpenSSL 1.1-specific logic.
+### 3. Shadow / Account Management (MEDIUM)
+*   **Dropped Features:**
+    *   **`chpasswd(8)`** and **`chgpasswd(8)`** are deprecated and slated for removal.
+    *   **`--with-sha-crypt`** build flag removed.
+    *   Support for several "deprecated for decades" hashing algorithms is being phased out.
+*   **Potentially Stale Tests:**
+    *   `tests/console/verify_shadow.pm`
+    *   `tests/console/sshd.pm`
+*   **Cleanup Goal:** Update scripts relying on `chpasswd` to use `usermod` or `passwd --stdin` (where supported). Ensure account creation tests don't specify removed SHA-crypt variants.
 
-### **4. systemd (Priority: Medium)**
-*   **Dropped Features:** `libidn` support (replaced by `libidn2`). `libiptc` support removed for **NAT rules** in `systemd-networkd` and `systemd-nspawn` (only `nftables` supported now).
-*   **Obsolete/Potentially Broken Tests:**
-    *   `tests/network/wireguard.pm`: If it verifies NAT functionality via the `iptables` backend.
-    *   Tests involving `systemd-nspawn` with NAT configurations.
-*   **Cleanup Action:** Update network tests to use `nftables` or remove obsolete `iptables` verification.
+### 4. libxslt1 (MEDIUM)
+*   **Dropped Features:**
+    *   **EXSLT crypto extensions** and support for dynamically loaded plugins are now disabled by default and marked for removal.
+    *   **`nanoftp.h`** and **`nanohttp.h`** removed.
+*   **Potentially Stale Tests:**
+    *   Upstream-integrated tests in `lib/services/nginx.pm` or other XML processing layers.
+*   **Cleanup Goal:** If any tests exercise specific EXSLT crypto functions or rely on `libxslt` to fetch remote resources via FTP/HTTP, they must be refactored or removed.
 
-### **5. openssh (Priority: Low)**
-*   **Dropped Features:** Bug compatibility for implementations that don't support **rekeying**. Empty principals in certificates no longer act as wildcards.
-*   **Obsolete/Potentially Broken Tests:**
-    *   `tests/console/sshd.pm`: If it tests interoperability with legacy, non-rekeying SSH servers/clients.
-*   **Cleanup Action:** Remove legacy bug-compatibility tests.
+### 5. Permissions / chkstat (LOW)
+*   **Dropped Features:**
+    *   Legacy **`CHECK_PERMISSIONS`** logic and deprecated capability checks in `chkstat` have been removed.
+*   **Potentially Stale Tests:**
+    *   Security auditing tests (none directly mapped in openQA DB, but often part of `cc_audit` suites).
+*   **Cleanup Goal:** Ensure security hardening tests are not checking for old `chkstat` behavior or variables that are now ignored.
 
-### **Summary Table**
-
-| Package | Feature Dropped | Impacted Test Module | Priority |
+### Summary of Coverage Risks
+| Package | Removed Feature | openQA Test Risk | Priority |
 | :--- | :--- | :--- | :--- |
-| **GDM** | XDCMP / System-X11 | `gdm_session_switch.pm` | High |
-| **curl** | RTMP / Default SMB | `curl_client.pm` | High |
-| **systemd** | iptables NAT | `network/wireguard.pm` | Medium |
-| **cryptography**| SECT Curves | (Internal/TestCatalog) | Medium |
-| **openssh** | Rekeying Compat | `tests/console/sshd.pm` | Low |
+| **systemd** | `iptables` / `libidn` | Network & NAT tests | **Critical** |
+| **gdm** | X11 Support / `xdm` | X11 Session switching | **High** |
+| **shadow** | `chpasswd` / old SHA | User management tests | **Medium** |
+| **libxslt1** | EXSLT Crypto / FTP | XML/Web service tests | **Medium** |
+| **ca-certs** | `SwissSign` CA | SSL/Certificate validation | **Low** |
