@@ -511,6 +511,49 @@ exactly as it does for changelog sources.
 
 ---
 
+---
+
+## Stale test cleanup demo (Thursday 29 May 2026)
+
+The newest demo tackles a question QA engineers face after every major distro update: which
+openQA tests are now covering functionality that no longer exists?
+
+The prompt asks gemini-cli to find packages in openSUSE Leap 16 and Tumbleweed whose recent
+changelogs mention dropped or removed features, cross-reference their test coverage, and produce
+a prioritised cleanup list. Gemini calls `find_untested_changes`, `get_test_coverage`, and
+`fts_search` in sequence, then synthesises the result into an actionable ranked list.
+
+Two fixes were needed to get the demo working:
+
+- `record_demos.sh` was missing the `~/.gemini/.env` load that `capture_demo_output.sh` already
+  had. Workspace accounts need `GOOGLE_CLOUD_PROJECT` set for non-interactive gemini invocations;
+  without it, gemini exited silently and the GIF showed only the prompt.
+- The `.gitignore` now suppresses root-level `*.py` files (except `mcp_server.py`) -- gemini
+  wrote a dozen ad-hoc analysis scripts into the working directory during the demo session.
+
+### Demos
+
+[Stale test cleanup](Demo-Stale-Tests)
+
+[Untested security fixes](Demo-Untested)
+
+---
+
+## Documentation and test coverage (Thursday 29 May 2026)
+
+28 new DB integration tests (`tests/test_tools_integration.py`) call the MCP tool functions
+directly against a testcontainers Postgres instance, patching the module-level `db` singleton.
+No mocks on the database side -- real SQL, real pgvector queries, real seed data.
+
+Coverage with e2e-db tests included: **75%** (up from 63% unit-only).
+Key gains: `changelog.py` 19% → 61%, `_helpers.py` 62% → 96%, `news.py` 16% → 42%.
+
+README was also refreshed: elevator pitch at the top, Demos section linking all 8 demo pages,
+complete tool table (22 tools), Code Structure section, advisory disclaimer reminding readers
+that output should be verified before acting on it.
+
+---
+
 ## What's next
 
 Once the server is stable it can be exposed as a shared service -- one instance per team,

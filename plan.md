@@ -130,16 +130,6 @@ Key cases:
 - `is_fresh` / `touch_manifest` — freshness check after touch
 - `evict_stale` — old manifest entry deleted
 
-### 10. `tests/test_llm.py` — mock httpx via `aioresponses`
-
-`src/llm.py`: `ask_llm(question, context) -> str`.
-
-Key cases:
-- success: mock `/v1/chat/completions` → 200 with choices → returns content string
-- HTTP 500 → raises or returns error string
-- connection error → raises or returns error string
-- Use `aioresponses` (already in dev deps)
-
 ---
 
 ## Implementation notes
@@ -160,13 +150,11 @@ Key cases:
 | `tests/test_version_utils.py` | `src/version_utils.py` | None |
 | `tests/test_obs_parser.py` | `src/obs_parser.py` | None |
 | `tests/test_spec_parser.py` | `src/spec_parser.py` | None |
-| `tests/test_modernize.py` | `src/modernize.py` | None |
 | `tests/test_rpm_manager.py` | `src/rpm_manager.py` | `AsyncMock` on subprocess |
 | `tests/test_embedder.py` | `src/embedder.py` | `patch("fastembed.TextEmbedding")` |
 | `tests/test_sources_registry.py` | `src/sources/registry.py` | `AsyncMock` sources |
 | `tests/test_ingest.py` | `src/ingest.py` | `AsyncMock` registry + db + embedder |
 | `tests/test_db.py` | `src/db.py` | testcontainers Postgres (`@pytest.mark.e2e`) |
-| `tests/test_llm.py` | `src/llm.py` | `aioresponses` |
 
 ---
 
@@ -391,7 +379,6 @@ Deployment: local stdio per user, shared Postgres. No auth needed.
 
 ### Resilience (priority 1)
 
-- **LLM retry**: wire `tenacity` in `src/llm.py` — 3 retries, exponential backoff, then raise
 - **Source fetch failure**: catch network/source errors in `IngestService`; if stale data exists return it with a `"⚠ fetch failed, data from <timestamp>"` caveat in the tool response
 - **Postgres startup retry**: add retry loop in `Database.connect()` for when the MCP process starts before Postgres is ready
 - **Graceful SIGTERM**: verify FastMCP lifespan closes the asyncpg pool cleanly on shutdown
@@ -405,7 +392,7 @@ Deployment: local stdio per user, shared Postgres. No auth needed.
 
 ### Ops / day-2
 
-- **`.env.example`**: document all env vars (`DATABASE_URL`, `LLM_BASE_URL`, etc.) with defaults and required/optional annotations
+- **`.env.example`**: document all env vars with defaults and required/optional annotations -- DONE
 - **Migration docs**: note that migrations are append-only idempotent; add version comments to `migrations/*.sql`
 - **Coverage**: run `tests/test_db.py` with podman socket to reach 70% target
 
@@ -421,8 +408,7 @@ Decisions made during pre-Phase-6 review. These shape Phase 5+ implementation an
 
 | # | Topic | Decision | Affects |
 |---|---|---|---|
-| DD1 | Deployment | **Stdio per user only.** Drop SSE entirely — remove dead `MCP_TRANSPORT=sse` branch in `mcp_server.py:1086-1088`. | Phase 5; mcp_server.py CLI |
-| DD2 | LLM failure contract | **Raise typed `LLMError`** after tenacity retries exhausted. Tool wrapper formats user-facing message. Changes `ask_llm() -> str` signature. | P1, src/llm.py, 4 callers |
+| DD1 | Deployment | **Stdio per user only.** SSE removed. | DONE |
 | DD3 | Stale-data UX | **Prefix banner** in tool text: `WARNING: source fetch failed; serving cached data from <ISO ts>\n\n<body>`. Detected via new `IngestStatus.STALE`. | P2, IngestService, tool wrapper |
 | DD4 | Spec source unification | **Option (b): add `fetch_spec` capability to `Source` ABC.** Fold `fetch_obs_spec` / `fetch_pagure_spec` into `ObsSource` / new `PagureSource`. Registry dispatches by capability. `_SPEC_SOURCES` dict in `mcp_server.py:688-691` goes away. | R4, src/sources/, src/spec_fetcher.py (delete) |
 | DD5 | Tool wiring after R1 | **`register(mcp)` function per module.** Each `src/tools/*.py` exports `def register(mcp: FastMCP) -> None` that decorates and binds. `mcp_server.py` calls each `register()` explicitly. No import-time side effects, no shared singleton. | R1, src/tools/* |
@@ -436,19 +422,18 @@ Decisions made during pre-Phase-6 review. These shape Phase 5+ implementation an
 | DD13 | HNSW search latency target | **<500ms p95** for `semantic_search` on ~650k vectors. `scripts/bench.py` tunes `hnsw.ef_search`; result captured in `Database.connect()` via `SET LOCAL hnsw.ef_search = N`. | Phase 4 bench |
 | DD14 | Ingest coalescing (DD10 follow-up) | **In-process dict of pending tasks** on `IngestService`. Repeated calls for the same package `await` the existing task. Cross-process races handled by `ON CONFLICT DO NOTHING` upserts. No advisory locks. | IngestService |
 | DD15 | CI coverage gate | **Report only, no gate.** Coverage shown in PR but doesn't block merge. Trust contributors; rely on reviewer judgment. | CI config (when added) |
-| DD16 | Tool execution timeouts | **Per-tool category timeouts.** Fast (`find_*`, `list_*`, `get_*`) 10s, search (`semantic_search`, `fts_search`) 30s, LLM (`analyze_package`, `modernize_package`, `explain_build`) 120s. Wrapped via `asyncio.wait_for` in `_tool_wrapper`; category resolved by decorator arg. | `_tool_wrapper`, every `@mcp.tool` callsite |
+| DD16 | Tool execution timeouts | **Per-tool category timeouts.** Fast (`find_*`, `list_*`, `get_*`) 10s, search (`semantic_search`, `fts_search`) 30s. Wrapped via `asyncio.wait_for` in `_tool_wrapper`; category resolved by decorator arg. | `_tool_wrapper`, every `@mcp.tool` callsite |
 | DD17 | Worker concurrency | **Keep at 10.** ~22 min per 13k-package full pass. Polite to OBS upstream; leaves headroom on shared box. | Phase 5 worker |
 | DD18 | Resource caps for SLES scale | **Raise `f4_max_packages` 50→200, `cache_max_entries` 1000→5000.** Deep dep trees (kernel, systemd, glibc rdeps) blew through old caps. | `src/config.py` defaults |
 | DD19 | Release versioning | **CalVer `YYYY.MM.N` (e.g. `2026.05.0`).** openSUSE-aligned; tracks continuous deployment reality. Add `CHANGELOG.md`; tag at end of each phase. | Repo metadata, `pyproject.toml`, release process |
 | DD20 | Migrations | **Versioned `schema_migrations(version, applied_at)` table.** Each `migrations/NNN_*.sql` applied at most once. Replace the idempotent-rescan. Existing `001_init.sql` retro-recorded on first connect. | `src/db.py:apply_migrations`, new migration tracking table |
 | DD21 | Observability | **Per-tool latency in structlog.** Add `tool.duration_ms` + `tool.category` to every `_tool_wrapper` finally-block emit. No new dep; greppable via `jq`. Defer Prometheus/OTel until deploy model changes. | `_tool_wrapper`, log schema |
 | DD22 | DB pool sizing | **Defer; ship min=1 max=2 default.** Phase 4 bench measures concurrent-connection ceiling under realistic load before any pgbouncer / `max_connections` tuning. | `src/db.py` pool init, `scripts/bench.py` |
-| DD23 | Error taxonomy | **Full hierarchy now.** `class RPMMcpError(Exception)` → `LLMError`, `SourceError`, `IngestError`, `DBError`, `ValidationError`. `_tool_wrapper` dispatches per type for user-facing message. | `src/errors.py` (new), all modules raising errors, `_tool_wrapper` |
+| DD23 | Error taxonomy | **Full hierarchy now.** `class RPMMcpError(Exception)` → `SourceError`, `IngestError`, `DBError`, `ValidationError`. `_tool_wrapper` dispatches per type for user-facing message. | `src/errors.py` (new), all modules raising errors, `_tool_wrapper` |
 | DD24 | Backup / DR | **Nightly `pg_dump`, 7-day retention.** systemd user timer alongside worker timer; dump to `~/rpm-mcp-backup/`, prune > 7d. Restore-faster-than-reingest is the win. | `packaging/systemd/rpm-mcp-backup.{service,timer}`, ops doc |
 
 ### Implications baked into Phase 6
 
-- **P1** → add `LLMError` class in `src/llm.py`; `ask_llm() -> str` still returns string on success but raises on failure (DD2). Tool wrapper already catches `Exception` so user-facing behavior is unchanged.
 - **P2** → add `IngestStatus.STALE`; `IngestService.ingest()` falls back to cached entries on source failure; tool wrapper prepends DD3 banner when status is STALE.
 - **R1** → follow DD5 module pattern.
 - **R2** → follow DD11 single-query pattern.
