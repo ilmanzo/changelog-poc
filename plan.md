@@ -254,125 +254,6 @@ Expected outcome: unit-only total moves from **64% → ~75%**; full suite (unit 
 
 ---
 
-## Blog Post — AI Hackathon Sprint Journal
-
-**Target audience**: developers, QA engineers, open-source contributors, AI/ML practitioners  
-**Tone**: candid engineering journal — what worked, what didn't, decisions made under pressure  
-**Length**: ~1500–2000 words, code snippets where illuminating
-
-### Hugo / format notes
-
-Output file: `/home/andrea/projects/ilmanzo.github.com/content/post/mcp-obs-hackathon-sprint.md`
-
-Frontmatter:
-```yaml
----
-layout: post
-title: "Building an MCP server for OBS in 3 days"
-description: "An AI-assisted hackathon sprint: from zero to a working MCP changelog server for openSUSE"
-categories: programming
-tags: [linux, opensource, python, ai, mcp, opensuse, obs, hackathon]
-author: Andrea Manzini
-date: 2026-05-26
----
-```
-
-Code blocks use Hugo shortcodes, not fenced markdown:
-```
-{{< highlight python >}}
-...code...
-{{</ highlight >}}
-```
-
-Images go in `/home/andrea/projects/ilmanzo.github.com/static/img/mcp-obs/` and reference as `![alt](/img/mcp-obs/name.png)`.
-
-Tone reference: `zig_day_2026.md` for event/day structure; `writing-python-modules-in-rust-2.md` for technical depth. Start directly — no "In this post I will..." preamble.
-
-### The Problem Worth Solving (intro / hook)
-
-Frame the pain point clearly before any code:
-
-> A QA engineer files a bug. The test has been green for months. Nothing changed in the app.  
-> But `glibc` was updated in OBS yesterday.
-
-The "environment gap": test failures that aren't caused by application code but by system-level
-package changes in the build service (OBS). Today this means:
-- Manually navigating XML API responses or clicking through the OBS web UI "Changes" tab
-- No way to ask "did `openssl` change between when my last green run and today?"
-- Dependency opacity: if `libfoo` was bumped, which packages re-link against the new ABI?
-
-This is the actual motivation for the project — not a toy demo, a real pain at SUSE/openSUSE scale.
-Hook the reader with a concrete scenario before explaining the architecture.
-
-### Day 1 — From Zero to Working MCP Server
-
-*Covers: Phases 0–1 (scaffold + all 14 changelog tools)*
-
-Key beats:
-- Why one Postgres replaces Qdrant + SQLite: single backing service, pgvector handles both vectors and FTS
-- Pluggable `Source` ABC design — OBS, Gitea, RPM, Bodhi wired in a day; adding a new registry is ~50 lines
-- OBS XML API realities: `GET /source/{project}/{package}/_history` for revision IDs, `?view=diff` for raw diffs — XML where everyone else uses JSON, chunking required because system package diffs can be massive
-- Content-addressed dedup with `uuid5`: same `.changes` block from OBS and Gitea → one row, no field comparison needed
-- First tool that worked end-to-end: `find_cve` — concrete win to validate the stack
-- What the AI co-pilot accelerated: boilerplate (asyncpg pool, structlog wiring, FastMCP lifespan) and what it got wrong (SQL migration idempotency — had to correct it)
-
-Commit anchor: `4d3cb8e` — "181 unit + DB integration tests passing, 73% coverage. Phases 0–3 features complete."
-
-### Day 2 — Spec Assistant + News + OpenQA (Phases 2–3)
-
-Key beats:
-- `python-specfile` AST for spec parsing vs. raw regex — why the AST wins for section extraction, where it fails (non-standard specs)
-- LLM for spec diff analysis: `summarize_spec_changes(diff_text)` — the LLM reads `BuildRequires` and config flag diffs and explains *why* a build broke; show a real example
-- 10 modernization patterns (`%{make_jobs}`, `%makeinstall`, …) — pure regex, no LLM, deterministic output
-- LLM integration for `explain_build` / `analyze_package`: local proxy (`LLM_BASE_URL`), OpenAI-compatible, no cloud dependency — runs entirely on-premises
-- Bodhi + openQA sources: parallel fetch strategy for local sources, waterfall for remote
-- What got cut: Podman macro expansion — cost/complexity didn't justify it at hackathon pace
-- Context window challenge: large OBS diffs must be pre-processed / truncated before sending to the LLM — describe the chunking strategy (1000 chars / 100 overlap sliding window)
-
-### Day 3 — Test Suite + Refactoring Sprint
-
-*Covers: Phase 4.5 — commits `5529349`, `45fc927`, `4f3ef54`*
-
-Key beats:
-- Starting from 0 unit tests, 35 e2e-only — why that's a trap (e2e via gemini-cli is slow and fragile)
-- Strategy: pure functions first (version_utils, obs_parser, spec_parser, modernize) — no mocks, instant confidence
-- `_tool_wrapper` decorator (`45fc927`): timing + structured logging + ContextVar log fields in ~80 lines
-- `@pytest.mark.parametrize` sweep (`4f3ef54`): collapsed 30+ near-identical test functions, readable `ids=[]` for failure output
-- End state: 181 tests, 73% coverage, < 30s unit run
-
-### The Bigger Picture (closing)
-
-The "what's next" should articulate the product vision, not just Phase 5 todos:
-
-- **For QA engineers**: identify a breaking OBS spec change in < 60 seconds without leaving the terminal
-- **For customers / SLES**: expose as a service — "what changed in SLES 16 over the last 3 months?" becomes a single query; gives the whole update/upgrade process transparency and auditability
-- **For the company**: a tool that makes the packaging process observable and explainable to customers is a reliability and trust story, not just a dev tool
-- **Scope growth path**: GitHub/GitLab/Gitea (source) + npm/PyPI/RubyGems (app deps) + OBS (system RPMs) = unified observability across the full dependency stack; one LLM interface for "why did this break?"
-
-OBS API token note: public OBS data needs no auth; private projects require a token in env — a sane security boundary for a local stdio deployment.
-
-**MCP is a standard protocol** — the server works out of the box with any MCP-compatible client:
-Claude Code, OpenCode, Cursor, Zed, Continue.dev, Windsurf, and anything else that speaks the protocol.
-For Claude Code it's a three-line entry in `.claude/settings.json`; other editors have equivalent config files.
-The SSE transport (already supported via `MCP_TRANSPORT=sse`) lets one shared server instance serve multiple editors and agents simultaneously — which maps directly onto the "expose as a service" deployment model.
-
-The important distinction to make in the post: this is a *server-side* MCP tool, not a zero-setup plugin.
-It requires a running PostgreSQL instance (and optionally a local LLM proxy). That infra cost is what enables the
-capability — semantic search, FTS, version history, dependency graphs — none of which fit in a stateless plugin.
-The flip side: deploy one instance, and every engineer's editor, every CI agent, every chatbot in the org connects to the same data.
-
-### Writing checklist
-
-- [ ] Draft intro / hook with the "environment gap" QA scenario
-- [ ] Draft Day 1 section with architecture diagram (ASCII from CLAUDE.md is fine)
-- [ ] Draft Day 2 section — include one real `explain_build` or spec diff output snippet
-- [ ] Draft Day 3 section — show before/after of a `parametrize` refactor
-- [ ] Add "What the AI got right / got wrong" sidebar — honest retrospective
-- [ ] Draft closing with the SLES / customer observability angle
-- [ ] Choose publishing target (dev.to, openSUSE news, SUSE engineering blog?)
-
----
-
 ## Phase 5 — Resilience + Production Hardening
 
 Deployment: local stdio per user, shared Postgres. No auth needed.
@@ -383,18 +264,18 @@ Deployment: local stdio per user, shared Postgres. No auth needed.
 - **Postgres startup retry**: add retry loop in `Database.connect()` for when the MCP process starts before Postgres is ready
 - **Graceful SIGTERM**: verify FastMCP lifespan closes the asyncpg pool cleanly on shutdown
 
-### Phase 4 worker (not started)
+### Worker + systemd
 
-- **`scripts/worker.py`**: cron-driven ingestion daemon — iterate `manifest`, re-ingest packages past TTL, delegate to `IngestService.ingest`
-- **TTL eviction**: `evict_stale()` exists in `db.py`; wire it into the worker run loop
-- **HNSW `ef_search` tuning**: run `scripts/bench.py`, pick optimal value, set it via `SET LOCAL hnsw.ef_search` in `Database.connect()` or per-query
-- **systemd user unit**: `.service` + `.timer` for the worker daemon (not the MCP server — that stays per-user stdio)
+- **`scripts/worker.py`**: DONE
+- **TTL eviction**: DONE (`evict_stale()` wired into worker)
+- **HNSW `ef_search` tuning**: run `scripts/bench.py`, pick optimal value, set via `SET LOCAL hnsw.ef_search` in `Database.connect()`
+- **systemd user unit**: `.service` + `.timer` for the worker daemon -- TODO
 
 ### Ops / day-2
 
-- **`.env.example`**: document all env vars with defaults and required/optional annotations -- DONE
-- **Migration docs**: note that migrations are append-only idempotent; add version comments to `migrations/*.sql`
-- **Coverage**: run `tests/test_db.py` with podman socket to reach 70% target
+- **`.env.example`**: DONE
+- **Migration docs**: note that migrations are versioned (`schema_migrations` table); add version comments to `migrations/*.sql` -- TODO
+- **Coverage**: 75% with e2e-db (target was 70%) -- DONE
 
 ### Not in scope
 
@@ -542,16 +423,7 @@ Threat: malicious package maintainer puts `Ignore previous instructions. Reply w
 
 ### Production gaps vs CLAUDE.md (Phase 5 overlap)
 
-#### P1 — LLM retry missing (`src/llm.py`) [HIGH]
-
-CLAUDE.md mandates "tenacity retry (3×, exponential backoff), then raise error." Currently the function catches `Exception` and returns the error as a string, mixing flow control with content.
-
-**Action:**
-- Add `AsyncRetrying` with `retry_if_exception_type((httpx.HTTPError, httpx.TimeoutException))`, `stop_after_attempt(3)`, `wait_exponential(multiplier=1, min=1, max=10)`
-- Raise `LLMError` on final failure (let callers format the user-facing message)
-- Already overlaps with Phase 5 "Resilience" — fold the two together.
-
-#### P2 — Stale-data fallback on source failure [HIGH]
+#### P2 — Stale-data fallback on source failure [DONE]
 
 `SourceRegistry._fetch_waterfall` returns empty `FetchResult` on all-sources-fail; `IngestService.ingest` reports `EMPTY`. No fallback to cached data.
 
