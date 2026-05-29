@@ -138,18 +138,24 @@ def _tool_wrapper(
                 log.info("tool_source_not_found", elapsed_s=round(time.perf_counter() - t0, 3))
                 return "Package not found in any configured source. Try sync_package to ingest it first."
             except SourceError as e:
+                # Why: log the raw error for ops but don't echo it back -- source
+                # errors can include internal URLs and upstream status payloads.
                 log.warning("tool_source_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
-                return f"Data source unavailable -- {e}. Try again later or check your network connection."
+                return "Data source temporarily unavailable. Try again later or check your network connection."
             except (DBError, asyncpg.PostgresError) as e:
+                # DB error messages can include SQL fragments, schema names, and
+                # connection metadata -- log them but keep the reply opaque.
                 log.error("tool_db_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
-                return f"Database error -- {e}. Is PostgreSQL running?"
-            except Exception as e:
+                return "Database error -- ingestion is degraded. Check the server logs."
+            except Exception:
+                # Catch-all: log full traceback + extras, but reply with a stable
+                # generic message that carries no user input or exception state.
                 log.exception(
                     "tool_error",
                     elapsed_s=round(time.perf_counter() - t0, 3),
                     **(_log_extras.get() or {}),
                 )
-                return f"Error in {tool_name} for {bound.get('package', '?')}: {e}"
+                return f"Unexpected error in {tool_name}. See server logs for details."
             finally:
                 _log_extras.reset(extras_token)
                 _stale_state.reset(stale_token)

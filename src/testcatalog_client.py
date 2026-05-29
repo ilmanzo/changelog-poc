@@ -30,6 +30,10 @@ from .sanitize import scrub_external
 _logger = structlog.get_logger("rpm-mcp.testcatalog")
 
 _PAGE_SIZE = 200
+# Why: cap iteration to bound resource use if a buggy or hostile server
+# returns full pages forever. 50 pages * 200/page = 10k tests per package,
+# well above the real-world ceiling (largest package currently <500 tests).
+_MAX_PAGES = 50
 _SOURCE_TAG = "testcatalog"
 
 # Matches "Package: vim" lines (multi-package: space/comma separated values)
@@ -74,7 +78,7 @@ class TestCatalogClient:
         out: list[OpenQATest] = []
         skip = 0
 
-        while True:
+        for _ in range(_MAX_PAGES):
             url = f"{self._base}/api/v1/tests"
             params = {"q": package, "limit": str(_PAGE_SIZE), "skip": str(skip)}
             async with session.get(url, params=params) as resp:
@@ -117,6 +121,15 @@ class TestCatalogClient:
             if len(page) < _PAGE_SIZE:
                 break
             skip += _PAGE_SIZE
+        else:
+            # for/else: hit page cap without breaking -- log and stop.
+            _logger.warning(
+                "testcatalog_page_cap_hit",
+                package=package,
+                max_pages=_MAX_PAGES,
+                page_size=_PAGE_SIZE,
+                returned=len(out),
+            )
 
         _logger.info("testcatalog_fetched", package=package, count=len(out))
         return out

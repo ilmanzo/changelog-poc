@@ -1,0 +1,13 @@
+# Why: third-party GitHub Actions are SHA-pinned in workflows/ to defeat
+# tag-rewriting attacks. Dependabot watches the upstream releases and
+# opens a PR with the new SHA + version comment when one ships, so we
+# keep the security benefit without the maintenance burden of manual
+# tracking.
+
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

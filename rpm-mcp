@@ -47,8 +47,22 @@ infra_status() {
     echo ""
     uv run python - <<'EOF'
 import asyncio, asyncpg, os, sys
+from urllib.parse import urlparse, urlunparse
+
+def _scrub(dsn: str) -> str:
+    """Strip the password from a DSN so it's safe to print."""
+    try:
+        p = urlparse(dsn)
+        if p.password:
+            netloc = p.netloc.replace(f":{p.password}@", ":***@")
+            return urlunparse(p._replace(netloc=netloc))
+    except ValueError:
+        pass
+    return dsn
+
 async def check():
     url = os.getenv("DATABASE_URL", "postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp")
+    safe = _scrub(url)
     try:
         conn = await asyncpg.connect(url)
         pkgs   = await conn.fetchval("SELECT COUNT(*) FROM packages")
@@ -57,7 +71,11 @@ async def check():
         await conn.close()
         print(f"DB ok -- {pkgs} packages, {entries} changelog entries, {tests} test rows")
     except Exception as e:
-        print(f"DB unreachable: {e}", file=sys.stderr)
+        # Why: asyncpg error messages can echo connection-string fragments.
+        # Print the scrubbed DSN explicitly and only the exception type/message
+        # so terminal output (which may be pasted into chat) cannot leak the
+        # password. Use exception class name + str(e) to keep a hint of cause.
+        print(f"DB unreachable ({safe}): {type(e).__name__}", file=sys.stderr)
         sys.exit(1)
 asyncio.run(check())
 EOF
