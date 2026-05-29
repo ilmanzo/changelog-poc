@@ -1,6 +1,6 @@
 # rpm-mcp
 
-MCP server for querying openSUSE/Fedora RPM changelogs, specs, CVEs, news, and openQA test mappings. Backed by PostgreSQL + pgvector.
+RPM packages on openSUSE/Fedora ship changelogs, spec files, CVE fixes, and openQA test mappings — this server ingests all of that into a shared PostgreSQL database with pgvector for semantic search. It exposes 22 tools over MCP (stdio), so any MCP client like Claude Code or gemini-cli can query it in natural language — "find CVEs fixed in curl last month" or "which tests cover dropped systemd features". The key insight is that the LLM reasoning stays in the client; the server is pure data retrieval, making it cheap to run as a shared service for 100 users with no per-user state.
 
 **Documentation:**
 - [User Guide](docs/user-guide.md) -- deploy, configure, ingest, query
@@ -178,14 +178,23 @@ uv run scripts/bench.py both
 | `analyze_package_diff` | Changelog diff between two versions |
 | `get_recent_releases` | Last N releases for a package |
 | `get_changes_in_range` | Changes between two dates |
-| `find_cve` / `list_cves` | CVE lookup |
-| `find_bug` / `list_bugs` | Bug reference search |
+| `compare_versions` | Side-by-side version comparison |
+| `find_cve` / `list_cves` | CVE lookup and listing |
+| `find_bug` / `list_bugs` | Bug reference search (bsc#/boo#/bnc#) |
 | `semantic_search` | pgvector cosine similarity search |
-| `fts_search` | Full-text search |
+| `fts_search` | Full-text search with optional date filter |
+| `sync_package` | Force re-ingest a package |
+| `sync_all_distros` | Re-ingest a package across all distros |
+| `get_dependencies` | Direct dependencies from DB |
+| `get_reverse_dependencies` | Reverse dependency lookup |
+| `get_dependency_changes` | BFS changelog walk over dep graph |
+| `find_core_packages` | Identify high-fan-in core packages |
 | `get_spec_details` | RPM spec file sections |
 | `get_news` | Bodhi + RSS news for a package |
-| `get_openqa_tests` | openQA test mappings |
-| `sync_package` | Force re-ingest a package |
+| `get_test_coverage` | openQA/TestCatalog test coverage |
+| `find_bugs_in_tests` | Tests referencing known bugs |
+| `get_sync_status` | Ingestion manifest and staleness info |
+| `find_untested_changes` | Security fixes with no test coverage |
 
 ## Demos
 
