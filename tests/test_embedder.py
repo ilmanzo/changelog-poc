@@ -104,9 +104,12 @@ async def test_embed_batch_empty_input_returns_empty() -> None:
     assert result == []
 
 
-async def test_embed_batch_returns_empty_on_failure() -> None:
+async def test_embed_batch_returns_empty_vectors_on_failure() -> None:
+    """Failure returns one empty vector per input so callers can ``zip`` the
+    result with the originals -- no extra fallback code at the call site.
+    """
     mock_model = MagicMock()
     mock_model.embed.side_effect = RuntimeError("ONNX failure")
     with patch("src.embedder._get_model", new=AsyncMock(return_value=mock_model)):
-        result = await embed_batch(["text"])
-    assert result == []
+        result = await embed_batch(["text1", "text2", "text3"])
+    assert result == [[], [], []]

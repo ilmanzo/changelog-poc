@@ -1026,5 +1026,5 @@ Prefer (b) unless we expect more source types to land soon.
 | 10 | C18, C19 (ops + dead code) | Hygiene | DONE |
 | 11 | C8, C9, C16, C17 (refactor batch) | Cleanup before more tools land | DONE (C8 spec sources via HttpClient mixin; C9 resolver on ObsSource; C16 fetch_recent_releases moved to _helpers; C17 docstring tightened, no API split) |
 | 12 | C14 (ingest_all_distros semaphore) | Trivial | DONE |
-| 13 | C20, C21, C22, C23 (polish batch) | Ride alongside other PRs | TODO |
+| 13 | C20, C21, C22, C23 (polish batch) | Ride alongside other PRs | DONE (C20 fallback in embed_batch; C21 rpm header [\d ]\d + tz-aware datetime.min; C22 single duration_ms in tool_done; C23 injection preview in log) |
 | — | C15 (DI refactor) | Deferred -- only if test pain grows | DEFERRED |

@@ -36,8 +36,6 @@ async def _ensure_spec(package: str, source: str = "opensuse") -> tuple[int, int
     sections = chunk_sections(extract_sections(text, package=package, source=source))
     if sections:
         embeddings = await embedder.embed_batch(s.content for s in sections)
-        if not embeddings:
-            embeddings = [[] for _ in sections]
         await db.replace_spec_sections(spec_id, sections, embeddings)
     await db.touch_manifest(pkg_id, kind="spec")
     return pkg_id, spec_id, text, url or ""

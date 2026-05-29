@@ -49,10 +49,25 @@ _INJECTION_MARKERS = (
 _INJECTION_LOG_THRESHOLD = 2
 
 
-def _scan_injection(text: str) -> tuple[int, list[str]]:
+_PREVIEW_BYTES = 80
+
+
+def _scan_injection(text: str) -> tuple[int, list[str], str]:
+    """Return ``(score, hits, preview)`` for the first marker context.
+
+    The preview is the slice of *text* around the first matched marker,
+    capped at ``_PREVIEW_BYTES``. Goes into the structured log so operators
+    can triage without raw-text access.
+    """
     lowered = text.lower()
     hits = [m for m in _INJECTION_MARKERS if m in lowered]
-    return len(hits), hits
+    preview = ""
+    if hits:
+        first = lowered.find(hits[0])
+        start = max(0, first - _PREVIEW_BYTES // 2)
+        end = min(len(text), first + _PREVIEW_BYTES // 2)
+        preview = text[start:end].replace("\n", " ").strip()
+    return len(hits), hits, preview
 
 
 def scrub_external(
@@ -82,7 +97,7 @@ def scrub_external(
     text = _ANSI_RE.sub("", text)
     text = _CTRL_RE.sub("", text)
     if source is not None or package is not None:
-        score, hits = _scan_injection(text)
+        score, hits, preview = _scan_injection(text)
         if score >= _INJECTION_LOG_THRESHOLD:
             _logger.warning(
                 "possible_injection",
@@ -90,6 +105,7 @@ def scrub_external(
                 source=source,
                 score=score,
                 markers=hits,
+                preview=preview,
             )
     cap = settings.cache_max_entry_bytes if max_bytes is None else max_bytes
     if cap and len(text.encode("utf-8")) > cap:

@@ -93,15 +93,17 @@ async def test_ingest_calls_touch_manifest() -> None:
 
 
 async def test_ingest_embed_failure_falls_back_to_empty_vectors() -> None:
-    """If embed_batch returns [] (failure), ingest still proceeds with null embeddings."""
+    """When embed_batch fails it returns one empty vector per text; ingest
+    still proceeds and the DB layer stores NULL embeddings for those rows.
+    """
     reg = _make_registry(_RESULT)
     db = _make_db()
 
-    with patch("src.ingest.embedder.embed_batch", new=AsyncMock(return_value=[])):
+    empty_vectors = [[] for _ in _ENTRIES]
+    with patch("src.ingest.embedder.embed_batch", new=AsyncMock(return_value=empty_vectors)):
         svc = IngestService(reg, db)
         result = await svc.ingest("vim")
 
-    # Should still index with empty embeddings
     assert result.status is IngestStatus.INDEXED
 
 

@@ -57,7 +57,10 @@ async def embed_one(text: str) -> list[float]:
 
 
 async def embed_batch(texts: Iterable[str]) -> list[list[float]]:
-    """Embed a batch of strings. Empty list on failure."""
+    """Embed a batch of strings. On failure returns ``[[]] * len(texts)``
+    so callers can ``zip`` with the originals without extra fallback code --
+    empty-vector rows end up with a NULL embedding column at the DB layer.
+    """
     texts = list(texts)
     if not texts:
         return []
@@ -66,7 +69,7 @@ async def embed_batch(texts: Iterable[str]) -> list[list[float]]:
         return await asyncio.to_thread(_embed_sync, model, texts, settings.embedding_batch_size)
     except Exception as e:
         _logger.error("embed_batch_failed", error=str(e), count=len(texts))
-        return []
+        return [[] for _ in texts]
 
 
 def chunk_text(text: str) -> list[str]:

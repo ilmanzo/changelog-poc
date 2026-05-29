@@ -107,15 +107,18 @@ def _tool_wrapper(
                 tool=tool_name,
                 **{k: v for k, v in bound.items() if isinstance(v, (str, int, bool))},
             )
+            # Why: every log path measures duration the same way. Compute it
+            # once at the call site -- the helper closes over t0.
+            def _ms() -> int:
+                return round((time.perf_counter() - t0) * 1000)
+
             try:
                 coro = fn(*args, **kwargs)
                 result = await (asyncio.wait_for(coro, timeout=timeout) if timeout else coro)
                 stale_at = _stale_state.get()
-                elapsed = time.perf_counter() - t0
                 log.info(
                     "tool_done",
-                    elapsed_s=round(elapsed, 3),
-                    duration_ms=round(elapsed * 1000),
+                    duration_ms=_ms(),
                     category=_category_label,
                     stale=stale_at is not None,
                     **(_log_extras.get() or {}),
@@ -123,36 +126,33 @@ def _tool_wrapper(
                 body = _wrap_untrusted(result, untrusted_sources)
                 return _stale_banner(stale_at) + body if stale_at is not None else body
             except TimeoutError:
-                elapsed = round(time.perf_counter() - t0, 3)
-                log.warning("tool_timeout", elapsed_s=elapsed, timeout_s=timeout)
+                log.warning("tool_timeout", duration_ms=_ms(), timeout_s=timeout)
                 return (
                     f"Tool '{tool_name}' exceeded the {timeout:.0f}s time limit. "
                     "Try a more specific query, or use the worker for large operations."
                 )
             except ValidationError as e:
-                log.warning(
-                    "tool_validation_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3)
-                )
+                log.warning("tool_validation_error", error=str(e), duration_ms=_ms())
                 return f"Invalid input: {e}"
             except SourceNotFound:
-                log.info("tool_source_not_found", elapsed_s=round(time.perf_counter() - t0, 3))
+                log.info("tool_source_not_found", duration_ms=_ms())
                 return "Package not found in any configured source. Try sync_package to ingest it first."
             except SourceError as e:
                 # Why: log the raw error for ops but don't echo it back -- source
                 # errors can include internal URLs and upstream status payloads.
-                log.warning("tool_source_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
+                log.warning("tool_source_error", error=str(e), duration_ms=_ms())
                 return "Data source temporarily unavailable. Try again later or check your network connection."
             except (DBError, asyncpg.PostgresError) as e:
                 # DB error messages can include SQL fragments, schema names, and
                 # connection metadata -- log them but keep the reply opaque.
-                log.error("tool_db_error", error=str(e), elapsed_s=round(time.perf_counter() - t0, 3))
+                log.error("tool_db_error", error=str(e), duration_ms=_ms())
                 return "Database error -- ingestion is degraded. Check the server logs."
             except Exception:
                 # Catch-all: log full traceback + extras, but reply with a stable
                 # generic message that carries no user input or exception state.
                 log.exception(
                     "tool_error",
-                    elapsed_s=round(time.perf_counter() - t0, 3),
+                    duration_ms=_ms(),
                     **(_log_extras.get() or {}),
                 )
                 return f"Unexpected error in {tool_name}. See server logs for details."

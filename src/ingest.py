@@ -222,9 +222,6 @@ class IngestService:
         )
 
         embeddings = await embedder.embed_batch(e.content for e in result.entries)
-        if not embeddings:
-            embeddings = [[] for _ in result.entries]
-
         inserted = await self._db.upsert_changelog_entries(
             package_name=package,
             package_id=package_id,
@@ -291,9 +288,6 @@ class IngestService:
             return 0
 
         embs = await embedder.embed_batch(e.content for e in result.entries)
-        if not embs:
-            embs = [[] for _ in result.entries]
-
         inserted = await self._db.upsert_changelog_entries(
             package_name=package,
             package_id=package_id,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 from async_lru import alru_cache
 
@@ -11,7 +11,10 @@ from .models import ChangelogEntry, PackageMetadata
 from .process import run_subprocess
 from .sanitize import scrub_external
 
-_HEADER_RE = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} \d{2} \d{4}) (.*)$")
+# Why: RPM's date field uses ``strftime("%a %b %e %Y")`` in some emitters
+# (space-padded day) and ``%d`` in others (zero-padded), so accept both
+# forms -- ``[\d ]\d`` matches "01" or " 1". Mirrors the obs_parser B1 fix.
+_HEADER_RE = re.compile(r"^\* ([A-Z][a-z]{2} [A-Z][a-z]{2} [\d ]\d \d{4}) (.*)$")
 _BACKFILL_VERSION_RE = re.compile(
     r"^[ \t]*- (?:Update|Upgrade) to (?:version )?([\d\.]+)",
     re.MULTILINE | re.IGNORECASE,
@@ -190,7 +193,8 @@ class RPMManager:
         try:
             dt = datetime.strptime(date_str, "%a %b %d %Y")
         except ValueError:
-            dt = datetime.min
+            # tz-aware so downstream comparisons with datetime.now(UTC) don't crash.
+            dt = datetime.min.replace(tzinfo=UTC)
 
         return ChangelogEntry(
             version=version.strip(),
