@@ -1,5 +1,6 @@
--- rpm-mcp initial schema.
--- Idempotent: re-runnable via CREATE ... IF NOT EXISTS. Applied by src/db.py on startup.
+-- 001_init.sql
+-- Initial schema: packages, changelog_entries, specs, spec_sections, news, openqa_tests,
+-- deps, manifest. Applied once via schema_migrations tracking in src/db.py.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

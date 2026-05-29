@@ -269,12 +269,12 @@ Deployment: local stdio per user, shared Postgres. No auth needed.
 - **`scripts/worker.py`**: DONE
 - **TTL eviction**: DONE (`evict_stale()` wired into worker)
 - **HNSW `ef_search` tuning**: run `scripts/bench.py`, pick optimal value, set via `SET LOCAL hnsw.ef_search` in `Database.connect()`
-- **systemd user unit**: `.service` + `.timer` for the worker daemon -- TODO
+- **systemd user unit**: DONE -- `packaging/systemd/rpm-mcp-worker.{service,timer}` + backup units
 
 ### Ops / day-2
 
 - **`.env.example`**: DONE
-- **Migration docs**: note that migrations are versioned (`schema_migrations` table); add version comments to `migrations/*.sql` -- TODO
+- **Migration docs**: DONE -- versioned via `schema_migrations` table; all migrations have version header comments
 - **Coverage**: 75% with e2e-db (target was 70%) -- DONE
 
 ### Not in scope

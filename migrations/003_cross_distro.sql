@@ -1,3 +1,4 @@
+-- 003_cross_distro.sql
 -- Cross-distro support: composite index on (name, distro) for efficient
 -- per-distro lookups now that Fedora and Ubuntu sources are active.
 
