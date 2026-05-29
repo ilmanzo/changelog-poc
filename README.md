@@ -221,6 +221,52 @@ See [`prompt_examples.md`](prompt_examples.md) for a collection of useful querie
 
 All text fetched from external sources is run through `src/sanitize.py:scrub_external` at parse time — strips ANSI escapes, null bytes, BOM, and C0/C1 control bytes before storage or display.
 
+## Code Structure
+
+**Entry points**
+- `mcp_server.py` — FastMCP entrypoint; wires lifespan, tools, CLI dispatch
+- `src/runtime.py` — process-wide singletons (`db`, `source_registry`, `ingest_service`, etc.) shared by all tools and CLI
+- `src/cli.py` — auto-generated argparse subcommands from tool signatures; handles one-shot CLI calls
+
+**Tools layer** (`src/tools/`)
+- `changelog.py` — 12 tools: version diff, CVE/bug search, FTS, semantic search, sync
+- `deps.py` — 4 tools: direct/reverse deps, BFS dependency changes, core packages
+- `spec.py` — 1 tool: spec file section parsing
+- `news.py` — 5 tools: news, test coverage, untested changes, bugs-in-tests, sync status
+- `_wrap.py` — decorator, structlog context vars, stale data banner
+- `_helpers.py` — shared validation, formatters, fast-fail probe
+
+**Data layer**
+- `src/db.py` — all SQL lives here; asyncpg pool + pgvector codec + idempotent migrations
+- `src/ingest.py` — orchestrates fetch → embed → upsert; used by tools, scripts, and worker
+- `src/embedder.py` — fastembed singleton; `embed_one`, `embed_batch`, chunking
+
+**Sources** (`src/sources/`)
+
+Each implements the `Source` ABC from `base.py`, exposing only the capabilities it has:
+
+| Source | Capabilities |
+|---|---|
+| `RpmSource` | changelog (local `rpm -q`) |
+| `ObsSource` | changelog + spec |
+| `GiteaSource` | changelog |
+| `PagureSource` | spec |
+| `BodhiSource` | news |
+| `OpenSUSENewsSource` | news |
+| `OpenQASource` | tests |
+
+**Supporting modules**
+- `src/spec_parser.py` — `python-specfile` AST → `SpecSection[]`
+- `src/git_manager.py` — shallow clone, tag lookup, LRU disk eviction
+- `src/rpm_manager.py` — `rpm -q` subprocess wrapper
+- `src/sanitize.py` — strips ANSI/control bytes from external content before storage
+
+**Scripts**
+- `scripts/ingest.py` — one-shot batch ingest
+- `scripts/worker.py` — cron/systemd daemon; runs sweep + news + ingest
+- `scripts/bench.py` — p50/p95/p99 latency benchmarks
+- `scripts/record_demos.sh` / `scripts/capture_demo_output.sh` — demo GIF and text capture
+
 ## Architecture
 
 See [`CLAUDE.md`](CLAUDE.md) for module responsibilities, data flow, and design decisions.
