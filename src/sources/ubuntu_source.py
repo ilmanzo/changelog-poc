@@ -9,8 +9,6 @@ from __future__ import annotations
 import html
 import re
 
-from async_lru import alru_cache
-
 from ..debian_parser import parse_debian_changelog
 from .base import FetchResult
 from .http_source import HttpSource
@@ -25,7 +23,6 @@ class UbuntuSource(HttpSource):
     distro = "ubuntu"
     _BASE_URL = "https://launchpad.net/ubuntu/+source"
 
-    @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
         url = f"{self._BASE_URL}/{package}/+changelog"
         page = await self._fetch_text(url)

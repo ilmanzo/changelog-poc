@@ -90,6 +90,28 @@ class IngestService:
         distros = self._sources.known_distros
         return list(await asyncio.gather(*(self.ingest(package, d) for d in distros)))
 
+    async def drain_pending(self, timeout_s: float | None = None) -> int:
+        """Await any in-flight tasks scheduled via ``schedule``.
+
+        Called from the lifespan ``__aexit__`` so a fire-and-forget ingest
+        triggered just before shutdown (e.g. in CLI one-shot mode) is allowed
+        to finish instead of being cancelled by ``asyncio.run`` finalisation.
+        Returns the number of tasks awaited. Times out silently — the caller
+        is already on the shutdown path.
+        """
+        tasks = [t for t in self._pending.values() if not t.done()]
+        if not tasks:
+            return 0
+        self._log.info("draining_pending_ingests", count=len(tasks))
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=timeout_s,
+            )
+        except TimeoutError:
+            self._log.warning("drain_timeout", remaining=sum(1 for t in tasks if not t.done()))
+        return len(tasks)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

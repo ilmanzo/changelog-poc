@@ -41,6 +41,15 @@ _SAFE_WHERE_CLAUSE = re.compile(
     r"\$\d{1,3}$"
 )
 
+# Why: keep in sync with migration 005's DEFAULT. When EMBEDDING_MODEL is unset
+# we fall back to the same name fastembed picks, so query-time filtering matches
+# the values written at ingest time.
+_DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+
+
+def active_embedding_model() -> str:
+    return settings.embedding_model or _DEFAULT_EMBEDDING_MODEL
+
 
 def _validate_where_clauses(clauses: Iterable[str]) -> None:
     for c in clauses:
@@ -195,6 +204,31 @@ class Database:
             )
             return int(row["id"])
 
+    @staticmethod
+    async def _batch_upsert_packages(
+        conn: asyncpg.Connection,
+        names: list[str],
+        distro: str = "opensuse",
+    ) -> dict[str, int]:
+        """Bulk upsert package rows in one round-trip; return ``{name: id}``.
+
+        Used by upsert_news / upsert_openqa / upsert_testcatalog_bugs to avoid
+        an N+1 ``upsert_package`` call per row.
+        """
+        if not names:
+            return {}
+        rows = await conn.fetch(
+            """
+            INSERT INTO packages (name, distro)
+            SELECT name, $2 FROM unnest($1::text[]) AS t(name)
+            ON CONFLICT (name, distro) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id, name
+            """,
+            names,
+            distro,
+        )
+        return {str(r["name"]): int(r["id"]) for r in rows}
+
     async def get_package_id(self, name: str, distro: str = "opensuse") -> int | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -226,7 +260,7 @@ class Database:
         source_name: str,
     ) -> int:
         """Bulk upsert. Returns inserted count (conflicts skipped)."""
-        active_model = settings.embedding_model or "BAAI/bge-small-en-v1.5"
+        active_model = active_embedding_model()
         rows: list[tuple[Any, ...]] = []
         for e, emb in zip(entries, embeddings, strict=True):
             rows.append(
@@ -290,6 +324,9 @@ class Database:
     # semantic + FTS search
     # ------------------------------------------------------------------
     async def semantic_search(self, embedding: list[float], limit: int = 10) -> list[asyncpg.Record]:
+        # Why: cosine distance is only meaningful between vectors from the same
+        # model. Mixing models silently corrupts ranking; filter rows to the
+        # currently active model (migration 005 columns row-by-row).
         async with self.pool.acquire() as conn:
             return await conn.fetch(
                 """
@@ -298,11 +335,13 @@ class Database:
                 FROM changelog_entries ce
                 JOIN packages p ON p.id = ce.package_id
                 WHERE ce.embedding IS NOT NULL
+                  AND ce.embedding_model = $3
                 ORDER BY ce.embedding <=> $1::vector
                 LIMIT $2
                 """,
                 embedding,
                 limit,
+                active_embedding_model(),
             )
 
     async def fts_search(
@@ -434,7 +473,7 @@ class Database:
         sections: list[SpecSection],
         embeddings: list[list[float]],
     ) -> None:
-        active_model = settings.embedding_model or "BAAI/bge-small-en-v1.5"
+        active_model = active_embedding_model()
         async with self.pool.acquire() as conn, conn.transaction():
             await conn.execute("DELETE FROM spec_sections WHERE spec_id = $1", spec_id)
             rows = [
@@ -473,18 +512,7 @@ class Database:
 
         names = sorted({n.package_name for n in items_list if n.package_name})
         async with self.pool.acquire() as conn, conn.transaction():
-            id_by_name: dict[str, int] = {}
-            if names:
-                pkg_rows = await conn.fetch(
-                    """
-                    INSERT INTO packages (name, distro)
-                    SELECT name, 'opensuse' FROM unnest($1::text[]) AS t(name)
-                    ON CONFLICT (name, distro) DO UPDATE SET name = EXCLUDED.name
-                    RETURNING id, name
-                    """,
-                    names,
-                )
-                id_by_name = {str(r["name"]): int(r["id"]) for r in pkg_rows}
+            id_by_name = await self._batch_upsert_packages(conn, names)
 
             rows = [
                 (
@@ -532,16 +560,20 @@ class Database:
         """Bulk upsert openQA/TestCatalog test rows.
 
         *source* distinguishes data origin: ``'openqa'`` (local .pm scan) vs
-        ``'testcatalog'`` (live API). Implicitly calls ``upsert_package`` for
-        every referenced ``package_name`` so callers don't have to.
+        ``'testcatalog'`` (live API). Implicitly upserts every referenced
+        package in a single round-trip rather than one-per-row.
         """
-        rows: list[tuple[Any, ...]] = []
-        for t in tests:
-            pkg_id = await self.upsert_package(t.package_name)
-            rows.append((pkg_id, t.test_path, t.summary, source))
-        if not rows:
+        tests_list = list(tests)
+        if not tests_list:
             return 0
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire() as conn, conn.transaction():
+            id_by_name = await self._batch_upsert_packages(
+                conn, sorted({t.package_name for t in tests_list})
+            )
+            rows = [
+                (id_by_name[t.package_name], t.test_path, t.summary, source)
+                for t in tests_list
+            ]
             await conn.executemany(
                 """
                 INSERT INTO openqa_tests (package_id, test_path, summary, source)
@@ -590,18 +622,29 @@ class Database:
     async def upsert_testcatalog_bugs(self, bugs: Iterable[BugReference]) -> int:
         """Bulk upsert Bugzilla bugs fetched from the TestCatalog analytics API.
 
-        Implicitly calls ``upsert_package`` for every referenced ``package_name``
-        so callers don't have to.
+        Implicitly batch-upserts every referenced package in a single round
+        trip so per-row N+1 is avoided.
         """
-        rows: list[tuple[Any, ...]] = []
-        for b in bugs:
-            pkg_id = await self.upsert_package(b.package_name)
-            rows.append(
-                (pkg_id, b.bug_id, b.summary, b.status, b.severity, b.component, b.assigned_to, b.resolution)
-            )
-        if not rows:
+        bugs_list = list(bugs)
+        if not bugs_list:
             return 0
-        async with self.pool.acquire() as conn:
+        async with self.pool.acquire() as conn, conn.transaction():
+            id_by_name = await self._batch_upsert_packages(
+                conn, sorted({b.package_name for b in bugs_list})
+            )
+            rows = [
+                (
+                    id_by_name[b.package_name],
+                    b.bug_id,
+                    b.summary,
+                    b.status,
+                    b.severity,
+                    b.component,
+                    b.assigned_to,
+                    b.resolution,
+                )
+                for b in bugs_list
+            ]
             await conn.executemany(
                 """
                 INSERT INTO testcatalog_bugs

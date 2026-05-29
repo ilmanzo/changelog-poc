@@ -36,9 +36,7 @@ LAUNCHPAD_HTML = """\
 
 @pytest.fixture
 def source() -> UbuntuSource:
-    s = UbuntuSource()
-    s.fetch.cache_clear()
-    return s
+    return UbuntuSource()
 
 
 async def test_fetch_parses_entries(source: UbuntuSource) -> None:

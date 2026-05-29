@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from async_lru import alru_cache
-
 from ..rpm_manager import RPMManager
 from .base import ChangelogSource, FetchResult, SourceError, SourceNotFound
 
@@ -21,7 +19,6 @@ class RpmSource(ChangelogSource):
     def __init__(self, rpm_manager: RPMManager | None = None) -> None:
         self._mgr = rpm_manager or RPMManager()
 
-    @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
         try:
             metadata = await self._mgr.get_metadata(package)

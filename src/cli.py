@@ -12,7 +12,7 @@ from typing import Any
 
 import structlog
 
-from .runtime import db, source_registry
+from .runtime import db, ingest_service, source_registry
 from .tools import ALL_CLI_TOOLS
 from .tools._wrap import suppress_untrusted_envelope
 
@@ -91,6 +91,10 @@ async def _run_tool(fn: Callable[..., Awaitable[str]], kwargs: dict[str, Any]) -
     try:
         print(await fn(**kwargs))
     finally:
+        # Why: tools may have dispatched a fire-and-forget ingest via
+        # IngestService.schedule(); awaiting them keeps the CLI "queued"
+        # promise honest. Bounded so a hung upstream doesn't block exit.
+        await ingest_service.drain_pending(timeout_s=30.0)
         await source_registry.close()
         if db_connected:
             await db.close()

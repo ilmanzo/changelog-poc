@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from async_lru import alru_cache
-
 from ..obs_parser import parse_obs_changes
 from .base import FetchResult
 from .http_source import HttpSource
@@ -17,7 +15,6 @@ class GiteaSource(HttpSource):
     name = "gitea"
     _BASE_URL = "https://src.opensuse.org/openSUSE"
 
-    @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
         url = f"{self._BASE_URL}/{package}/raw/branch/master/{package}.changes"
         text = await self._fetch_text(url)

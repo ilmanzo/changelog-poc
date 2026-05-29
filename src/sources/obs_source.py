@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from async_lru import alru_cache
-
 from ..obs_parser import parse_obs_changes
 from .base import FetchResult
 from .http_source import HttpSource
@@ -15,7 +13,6 @@ class ObsSource(HttpSource):
     name = "obs"
     _BASE_URL = "https://api.opensuse.org/public/source/openSUSE:Factory"
 
-    @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
         url = f"{self._BASE_URL}/{package}/{package}.changes"
         text = await self._fetch_text(url)

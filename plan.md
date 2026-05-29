@@ -856,3 +856,175 @@ Captured for future iterations once the PoC graduates. Not on the current burndo
 - **F5** [done] — VHS recordings in `docs/vhs/` (demo_changelog.tape, demo_search.tape, demo_untested.tape). `scripts/record_demos.sh` automates recording. Development diary target: `docs/dev-diary.md` (plain Markdown for Confluence).
 - **Cross-distro features** [done] — `SourceRegistry.fetch(distro=...)` filters sources by distro attribute. `IngestService.ingest_all_distros(package)` runs parallel per-distro ingest. `compare_versions(package)` tool returns latest version per distro. `sync_all_distros(package)` tool triggers cross-distro ingest. `scripts/ingest_core.sh` supports `CROSS_DISTRO=1` env var.
 - **S7h** [done] — `docs/THREAT_MODEL.md`: data sources, trust boundaries, mitigations, accepted risks.
+
+---
+
+## Phase 7 — Codebase Review Findings (2026-05-29)
+
+Findings from senior-engineer review of full src/ tree. Items not previously
+tracked in Phase 6. Implement HIGH first, then MED, then LOW. Each item is
+independently shippable. Tag IDs `C<n>` (for "code review").
+
+### HIGH — silent correctness / data-integrity issues
+
+#### C1 — `semantic_search` ignores embedding_model column
+
+`src/db.py:292-306`. Migration 005 added `embedding_model TEXT` to `changelog_entries` to allow model swaps, but `semantic_search` never filters by it. Mixing two 384-dim models corrupts cosine ranking silently.
+
+**Action:** filter `WHERE ce.embedding_model = $N` with `settings.embedding_model` (or the resolved default name when unset). Add the same filter to `spec_sections` semantic queries.
+
+#### C2 — `@alru_cache` on Source.fetch silently shadows `refresh=True`
+
+`src/sources/{rpm,obs,gitea,fedora,ubuntu}_source.py`. Process-lifetime cache, no TTL, no invalidation on refresh. `IngestService.ingest(refresh=True)` is a lie.
+
+**Action:** either (a) drop `@alru_cache` from `Source.fetch` and rely on the DB-backed `manifest` TTL, or (b) add a `bust_cache` method to `ChangelogSource` and call it from `IngestService` when `refresh=True`. Prefer (a) — the DB is already the cache.
+
+#### C3 — Background ingest task orphaned in CLI mode
+
+`src/tools/_helpers.py:131`, `src/ingest.py:101-108`. `ingest_service.schedule(pkg)` fires a task; `asyncio.run` finalization in `src/cli.py` cancels it mid-flight when the tool returns. CLI users get `MSG_PKG_QUEUED` but nothing happens.
+
+**Action:** in the lifespan `__aexit__`, await `IngestService.drain_pending()` (new method that gathers `_pending.values()` with a timeout). CLI mode now waits for the queued task before exit. Also wire the same drain into the MCP server's shutdown path so SIGTERM doesn't drop work.
+
+#### C4 — N+1 in `upsert_openqa` and `upsert_testcatalog_bugs`
+
+`src/db.py:540, 598`. Each row issues its own round-trip. `upsert_news` already solved this with `INSERT ... FROM unnest($1::text[], $2::text[], ...)`.
+
+**Action:** refactor both to one batched insert. For 200 TestCatalog rows: 200 RTTs → 1.
+
+#### C5 — `Source` ABC docs vs reality drift
+
+CLAUDE.md describes a multi-capability `Source` ABC with `fetch_changelog`/`fetch_spec`/`fetch_news`/`fetch_tests`. Reality: `ChangelogSource` only has `fetch()`; spec/news/tests are separate class trees. Two options:
+
+**Action:** pick one, do it. Either:
+- (a) **Implement the docs**: refactor to one `Source` ABC, mark unsupported capabilities `NotImplementedError`, update the registry to dispatch per capability. Larger change but matches the original design intent.
+- (b) **Fix the docs**: update CLAUDE.md to reflect the actual split (`ChangelogSource` + `SpecSource` + ad-hoc fetchers for news/tests). Trivial. Honest.
+
+Prefer (b) unless we expect more source types to land soon.
+
+### MED — bugs, security, performance
+
+#### C6 — `evict_stale` race vs concurrent ingest
+
+`src/db.py:771-805`. Under READ COMMITTED, a concurrent `IngestService` write can land between the SELECT and DELETE, deleting just-ingested rows.
+
+**Action:** combine into a single CTE (`WITH stale AS (SELECT ... FOR UPDATE) DELETE FROM changelog_entries USING stale ...`) or run inside a SERIALIZABLE transaction with explicit row locks.
+
+#### C7 — `_records_to_entries` produces naive `datetime.min`
+
+`src/tools/_helpers.py:81-90`. Downstream comparisons against tz-aware `datetime.now(UTC)` raise `TypeError`.
+
+**Action:** `datetime.min.replace(tzinfo=UTC)`. Same in `src/obs_parser.py:63`.
+
+#### C8 — Spec sources duplicate HTTP plumbing
+
+`src/sources/spec_sources.py:32-65`. Fresh `aiohttp.ClientSession` per call, no retries, swallow all `Exception`. `HttpSource` already provides all this.
+
+**Action:** subclass `HttpSource`, call `_fetch_text`.
+
+#### C9 — `_resolve_upstream_url` openSUSE-only but runs for every distro
+
+`src/ingest.py:258-292`. Hardcoded to OBS public API; runs unconditionally on every distro's ingest path.
+
+**Action:** move resolver onto `ObsSource` as a method; `_enrich_upstream` asks the source for its own upstream-URL resolution. Other sources can implement when needed.
+
+#### C10 — `git://` still in `_ALLOWED_SCHEMES`
+
+`src/git_manager.py:18`. Plan S2 said drop `http`, kept silent on `git://`. No auth, no encryption, MITM-able. Upstream URLs come from spec files (untrusted).
+
+**Action:** drop `git://` from the whitelist.
+
+#### C11 — RPM `URL:` field persisted with no scheme/host validation
+
+`src/sources/rpm_source.py:25` → `src/ingest.py:165-168` → `_enrich_upstream`. `file:///etc/passwd` or `http://internal/api` from a malicious local RPM could be stored and surfaced.
+
+**Action:** validate scheme ∈ {`https`} and host shape at the `upsert_package` boundary (or in `_enrich_upstream`).
+
+#### C12 — `make_client_session` sets no `User-Agent`
+
+`src/http_utils.py:17`. Anonymous requests; subject to per-host strict quotas; can't be identified in upstream logs.
+
+**Action:** default UA `rpm-mcp/<version>` from `pyproject.toml`.
+
+#### C13 — `find_core_packages` forks rpm N times
+
+`src/tools/deps.py:133`. `n=200` → 200 forks. `rpm -q --whatrequires pkg1 pkg2 ...` accepts batch args.
+
+**Action:** one fork; parse grouped output. Falls back to per-pkg if batch unsupported.
+
+#### C14 — `ingest_all_distros` unbounded `gather`
+
+`src/ingest.py:88`. 3 distros today; grows with each new source.
+
+**Action:** `asyncio.Semaphore(settings.worker_concurrency // 2)`. Cap.
+
+#### C15 — Module-level singletons block clean testing
+
+`src/runtime.py:33-41`. Every tool does `from ..runtime import db`. Tests must monkeypatch the module attribute (see `test_tools_integration.py` autouse fixture).
+
+**Action (deferred to Phase 8):** lifespan context injection — tools take `(ctx, ...)` and read services off `ctx.request_context.lifespan_context`. Larger refactor; skip unless test pain grows.
+
+#### C16 — `tools/deps.py` reaches into `tools/changelog._fetch_recent_releases`
+
+`src/tools/deps.py:14`. Cross-module private import. Circular-import accident waiting.
+
+**Action:** move `_fetch_recent_releases` to `_helpers.py` (it's pure DB query — not changelog-tool-specific).
+
+#### C17 — `_ensure_or_queue` mixes probe + blocking refresh
+
+`src/tools/_helpers.py:123-138`. Returns `QUEUED` for never-indexed; *also* blocks on stale refresh. Name lies.
+
+**Action:** split into `probe(pkg) -> QueueResult` and `refresh_if_stale(pkg)`. Callers express intent.
+
+#### C18 — `news.py` swallows `Exception` with `_tlog(...str(exc))`
+
+`src/tools/news.py:57, 219`. No stack trace. Silent 24h refresh failures.
+
+**Action:** `log.exception(...)`.
+
+#### C19 — Dead code
+
+`test_repo_mgr` singleton — `src/runtime.py:41` (instantiated, never imported by any tool).
+`fetch_any_spec` — `src/sources/spec_sources.py:72` (no caller).
+
+**Action:** delete both.
+
+### LOW — polish
+
+#### C20 — Embedding fallback duplication
+
+`[[] for _ in entries]` in `src/ingest.py:171, 240` and `src/tools/spec.py:39`. Push into `embedder.embed_batch` itself (return `[[]]*N` on internal failure rather than `[]`).
+
+#### C21 — `_HEADER_RE` (rpm) `\d{2}` for day
+
+`src/rpm_manager.py:14`. OBS parser fixed via `[\d ]\d` (B1). Verify rpm corpus; if hit, silently drops entries.
+
+**Action:** match B1 fix.
+
+#### C22 — Log unit consistency
+
+`elapsed_s` + `duration_ms` both emitted in `_wrap.py:117`. Pick one.
+
+**Action:** drop `elapsed_s`; keep `duration_ms` (matches DD21 schema).
+
+#### C23 — `possible_injection` log lacks preview
+
+`src/sanitize.py:85`. For triage, log first 80 chars of matched region (after scrubbing).
+
+### Priority order
+
+| # | Item | Why |
+|---|---|---|
+| 1 | C1 (semantic_search model filter) | Silent ranking corruption — biggest bang for buck |
+| 2 | C2 (alru_cache TTL) | `refresh=True` broken — user-facing |
+| 3 | C3 (background task orphan) | UX promise broken in CLI mode |
+| 4 | C4 (N+1 upserts) | 200x speedup on testcatalog ingest |
+| 5 | C5 (docs vs reality) | Pick (b); 5-minute fix |
+| 6 | C6 (evict_stale race) | Silent data loss at scale |
+| 7 | C7 (naive datetime) | Crash-class bug; cheap fix |
+| 8 | C10, C11, C12 (security batch) | Cheap, one PR |
+| 9 | C13 (find_core_packages batch rpm) | Latency cliff at n=200 |
+| 10 | C18, C19 (ops + dead code) | Hygiene |
+| 11 | C8, C9, C16, C17 (refactor batch) | Cleanup before more tools land |
+| 12 | C20, C21, C22, C23 (polish batch) | Ride alongside other PRs |
+| — | C14 (semaphore) | Trivial; ride alongside C13 |
+| — | C15 (DI refactor) | Deferred — only if test pain grows |

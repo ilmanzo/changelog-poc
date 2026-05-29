@@ -54,10 +54,14 @@ mcp_server.py  (FastMCP, structlog, lifespan-managed Database)
                   └────────────────┘
                           ↓
                   ┌────────────────┐
-                  │ SourceRegistry │  ── routes by capability
+                  │ SourceRegistry │  ── changelog dispatch (waterfall | parallel)
                   └────────────────┘
-              ┌──────────┼──────────┬──────────┬──────────┬──────────┐
-          RpmSource  ObsSource  GiteaSource  PagureSource  BodhiSource  OpenQASource
+              ┌──────────┼──────────┬──────────┬──────────┐
+          RpmSource  ObsSource  GiteaSource  FedoraSource  UbuntuSource
+                 │
+                 │ (spec / news / tests handled by separate modules:
+                 │  spec_sources.py, news_fetcher.py, openqa_fetcher.py,
+                 │  testcatalog_client.py)
               ↓
          Database (asyncpg + pgvector)
               ↓
@@ -66,16 +70,27 @@ mcp_server.py  (FastMCP, structlog, lifespan-managed Database)
 
 ### Source registry
 
-Generalised `Source` interface (see `src/sources/base.py`) exposes four optional capabilities — sources implement only what they have:
+`SourceRegistry` (`src/sources/registry.py`) is changelog-only. It holds an
+ordered list of `ChangelogSource` instances (`src/sources/base.py`) each
+exposing a single `async fetch(package) -> FetchResult`. The registry filters
+by `distro` and applies a `waterfall` (first non-empty wins) or `parallel`
+(local sources first, then fan out) strategy. Local sources (`is_local=True`)
+run first in parallel mode.
 
-| Capability | Returned data | Implementing sources |
+Spec / news / tests are served by **separate** modules outside the
+`ChangelogSource` ABC — not a single multi-capability source interface:
+
+| Data | Module(s) | Notes |
 |---|---|---|
-| `fetch_changelog` | `list[ChangelogEntry]` | `RpmSource`, `ObsSource`, `GiteaSource`, `GitSource` |
-| `fetch_spec` | `str` (raw .spec) | `ObsSource`, `PagureSource` |
-| `fetch_news` | `list[NewsItem]` | `BodhiSource`, `OpenSUSENewsSource` |
-| `fetch_tests` | `list[OpenQATest]` | `OpenQASource` |
+| changelogs | `src/sources/{rpm,obs,gitea,fedora,ubuntu}_source.py` | Routed through `SourceRegistry` |
+| spec files | `src/sources/spec_sources.py` (`ObsSpecSource`, `PagureSpecSource`) | Looked up via `SPEC_SOURCES` dict in `src/tools/spec.py` |
+| news       | `src/news_fetcher.py` (Bodhi + RSS)                        | Worker-driven; tools read from `news` table only |
+| openQA / TestCatalog tests | `src/openqa_fetcher.py`, `src/testcatalog_client.py` | Tools read from `openqa_tests` table |
+| GitHub / GitLab releases   | `src/sources/{github,gitlab}_source.py`              | Instantiated per-package by `IngestService._enrich_upstream`, not in registry |
 
-Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) only apply to `fetch_changelog`. Local sources (`is_local=True`) run first in parallel mode.
+A unified multi-capability `Source` ABC was considered (DD4) and deferred —
+the current split keeps each data type's transport / cache / parse pipeline
+co-located with no abstract-method noise on the changelog-only registry.
 
 ### Postgres schema
 

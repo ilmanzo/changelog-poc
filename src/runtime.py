@@ -48,6 +48,11 @@ async def lifespan(_server: object) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # Why: a tool may have just dispatched a fire-and-forget ingest via
+        # IngestService.schedule(); without an explicit drain, asyncio.run
+        # finalisation cancels those tasks mid-flight and the CLI/MCP caller
+        # is left with a "queued" promise that never lands.
+        await ingest_service.drain_pending(timeout_s=30.0)
         await source_registry.close()
         await db.close()
         _logger.info("server_stopped")

@@ -92,9 +92,7 @@ PAGURE_META = json.dumps({"default_branch": "rawhide"})
 
 @pytest.fixture
 def source() -> FedoraSource:
-    s = FedoraSource()
-    s.fetch.cache_clear()
-    return s
+    return FedoraSource()
 
 
 async def test_fetch_uses_standalone_changelog(source: FedoraSource) -> None:

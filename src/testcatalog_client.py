@@ -42,6 +42,14 @@ class TestCatalogClient:
     def __init__(self) -> None:
         self._base = settings.testcatalog_url.rstrip("/")
         self._key = settings.testcatalog_api_key or ""
+        # Why: a Bearer token sent over plain HTTP is harvestable from any
+        # transit hop. Fail fast at construction rather than leaking on first
+        # request. Anonymous (no key) HTTP is still allowed for public reads.
+        if self._key and not self._base.lower().startswith("https://"):
+            raise ValueError(
+                "testcatalog_api_key requires https:// testcatalog_url to avoid "
+                f"Bearer token leakage; got scheme in {self._base!r}"
+            )
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:

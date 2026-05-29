@@ -10,8 +10,6 @@ from __future__ import annotations
 import json
 import re
 
-from async_lru import alru_cache
-
 from ..obs_parser import parse_obs_changes
 from ..rpm_manager import RPMManager
 from .base import FetchResult, SourceNotFound
@@ -43,7 +41,6 @@ class FedoraSource(HttpSource):
     distro = "fedora"
     _API_BASE = "https://src.fedoraproject.org"
 
-    @alru_cache(maxsize=128)
     async def fetch(self, package: str) -> FetchResult:
         meta_url = f"{self._API_BASE}/api/0/rpms/{package}"
         meta_text = await self._fetch_text(meta_url)
