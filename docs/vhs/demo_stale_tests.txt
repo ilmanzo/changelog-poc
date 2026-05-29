@@ -1,57 +1,41 @@
-Based on recent changelog analysis for **openSUSE Tumbleweed** and **Leap 16** (including ALP-based SLE 16 shared components), I have identified several packages that have recently dropped or removed features. Below is a prioritized cleanup list focusing on tests that may now be covering non-existent functionality.
+I have analyzed the recent changelogs for openSUSE Leap 16 (and SLE 16) and Tumbleweed to identify dropped features and cross-referenced them with their test coverage in openQA and TestCatalog.
 
-### 1. systemd / libsystemd0 (CRITICAL)
-*   **Dropped Features:**
-    *   **`libidn`** support has been completely removed and replaced by `libidn2`.
-    *   **`libiptc`** (legacy `iptables` API) support in `systemd-networkd` and `systemd-nspawn` has been dropped; only `nftables` is now supported for NAT rules.
-    *   **Meson options** `-Dlibidn` and `-Dlibiptc` are now ignored/deprecated.
-*   **Potentially Stale Tests:**
-    *   `tests/network/wireguard_nm.pm`
-    *   `tests/network/wireguard.pm`
-    *   `tests/autoyast/wicked.pm`
-*   **Cleanup Goal:** Audit these network tests to ensure they are not relying on `iptables` for NAT configuration or checking for `libidn` link-time dependencies. Migrate logic to `nftables`.
+### **Prioritized Cleanup List**
 
-### 2. GDM / GNOME Session (HIGH)
-*   **Dropped Features:**
-    *   **X11 Session Support:** GDM has entirely removed X11 support except for a legacy launch path; `gnome-session` has similarly dropped X11 session support.
-    *   **`xdm-integration`** and `update-alternatives` for display managers are being removed in SLE 16.1 / Leap 16.
-    *   **`udev-dir`** meson option entirely removed.
-*   **Potentially Stale Tests:**
-    *   `tests/x11/gdm_session_switch.pm`
-    *   `tests/x11/gnomecase/gnome_classic_switch.pm`
-    *   `tests/x11/keyboard_layout_gdm.pm`
-*   **Cleanup Goal:** Verify if "Gnome Classic" or other X11-specific session tests are still viable. Tests attempting to use `update-alternatives` for display manager selection on Leap 16 will fail.
-
-### 3. Shadow / Account Management (MEDIUM)
-*   **Dropped Features:**
-    *   **`chpasswd(8)`** and **`chgpasswd(8)`** are deprecated and slated for removal.
-    *   **`--with-sha-crypt`** build flag removed.
-    *   Support for several "deprecated for decades" hashing algorithms is being phased out.
-*   **Potentially Stale Tests:**
-    *   `tests/console/verify_shadow.pm`
-    *   `tests/console/sshd.pm`
-*   **Cleanup Goal:** Update scripts relying on `chpasswd` to use `usermod` or `passwd --stdin` (where supported). Ensure account creation tests don't specify removed SHA-crypt variants.
-
-### 4. libxslt1 (MEDIUM)
-*   **Dropped Features:**
-    *   **EXSLT crypto extensions** and support for dynamically loaded plugins are now disabled by default and marked for removal.
-    *   **`nanoftp.h`** and **`nanohttp.h`** removed.
-*   **Potentially Stale Tests:**
-    *   Upstream-integrated tests in `lib/services/nginx.pm` or other XML processing layers.
-*   **Cleanup Goal:** If any tests exercise specific EXSLT crypto functions or rely on `libxslt` to fetch remote resources via FTP/HTTP, they must be refactored or removed.
-
-### 5. Permissions / chkstat (LOW)
-*   **Dropped Features:**
-    *   Legacy **`CHECK_PERMISSIONS`** logic and deprecated capability checks in `chkstat` have been removed.
-*   **Potentially Stale Tests:**
-    *   Security auditing tests (none directly mapped in openQA DB, but often part of `cc_audit` suites).
-*   **Cleanup Goal:** Ensure security hardening tests are not checking for old `chkstat` behavior or variables that are now ignored.
-
-### Summary of Coverage Risks
-| Package | Removed Feature | openQA Test Risk | Priority |
+| Priority | Package | Dropped Feature(s) | Impacted Test Modules |
 | :--- | :--- | :--- | :--- |
-| **systemd** | `iptables` / `libidn` | Network & NAT tests | **Critical** |
-| **gdm** | X11 Support / `xdm` | X11 Session switching | **High** |
-| **shadow** | `chpasswd` / old SHA | User management tests | **Medium** |
-| **libxslt1** | EXSLT Crypto / FTP | XML/Web service tests | **Medium** |
-| **ca-certs** | `SwissSign` CA | SSL/Certificate validation | **Low** |
+| **P1** | **systemd** | `libidn` support; NAT rule creation in `networkd` & `nspawn` | `tests/network/wireguard.pm`<br>`tests/network/wireguard_nm.pm` |
+| **P1** | **gdm** (Leap 16) | `xdm-integration`; `dbus-daemon` dependency; Xorg session (now disabled by default) | `tests/x11/window_system.pm`<br>`tests/x11/remote_desktop/...` |
+| **P2** | **nginx** | Legacy `charset` directive removed from default config | `tests/console/nginx_php_fpm.pm` |
+| **P2** | **glibc** | Support for dumped heaps; TX lock elision for pthread mutexes | `tests/console/glibc_sanity.pm`<br>`tests/console/glibc_tunables.pm` |
+| **P3** | **shadow** | `chpasswd(8)` and `chgpasswd(8)` planned for removal; `--with-sha-crypt` | `tests/console/verify_shadow.pm` |
+| **P3** | **libxslt1** | EXSLT crypto extensions disabled by default | No specific package test found |
+
+---
+
+### **Detailed Analysis**
+
+#### **1. systemd (High Risk)**
+*   **Change:** Support for the `libidn` library was dropped. More critically, `systemd-networkd` and `systemd-nspawn` no longer support creating NAT rules directly.
+*   **Test Conflict:** Existing network tests like `wireguard.pm` often rely on `networkd` to handle routing and NAT. These tests may now fail or be providing false positives if they still attempt to use these removed functionalities.
+*   **Action:** Audit `wireguard` tests to ensure they use the new recommended networking primitives.
+
+#### **2. gdm (Leap 16 / SLE 16 Focus)**
+*   **Change:** In the transition to Leap 16 (GNOME 49+), `gdm` has dropped `xdm-integration` and its dependency on `dbus-daemon`. Xorg support is now disabled by default in favor of Wayland.
+*   **Test Conflict:** Many openQA X11 tests (`window_system.pm`) assume an Xorg backend or check for the presence of `dbus-daemon` processes associated with the greeter.
+*   **Action:** Update greeter tests to be Wayland-native and remove checks for legacy XDM alternatives.
+
+#### **3. nginx**
+*   **Change:** The legacy `charset` directive was removed from the default configuration examples.
+*   **Test Conflict:** `nginx_php_fpm.pm` verifies service functionality using default configurations. If the test or its associated PHP-FPM setup expects this directive, it will fail to start or behave inconsistently.
+*   **Action:** Verify the test's `nginx.conf` template and remove legacy charset references.
+
+#### **4. glibc**
+*   **Change:** Removed support for "dumped heaps" and TX lock elision on all architectures.
+*   **Test Conflict:** `glibc_sanity.pm` and `glibc_tunables.pm` perform low-level checks on memory management and threading.
+*   **Action:** Remove or update sanity checks that specifically target these removed features to avoid false "regression" reports.
+
+#### **5. shadow**
+*   **Change:** Upcoming removal of `chpasswd(8)` and `chgpasswd(8)`. Build flag `--with-sha-crypt` is also being phased out.
+*   **Test Conflict:** `verify_shadow.pm` is the primary module for validating user management tools.
+*   **Action:** Transition tests to use `usermod` or other modern alternatives before the binaries are fully removed from the distribution.
