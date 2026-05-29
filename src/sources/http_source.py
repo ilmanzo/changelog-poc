@@ -1,4 +1,4 @@
-"""Shared HTTP plumbing for network-backed changelog sources."""
+"""Shared HTTP plumbing for network-backed sources (changelog + spec)."""
 
 from __future__ import annotations
 
@@ -18,13 +18,12 @@ from ..http_utils import refresh_session
 from .base import ChangelogSource, SourceError, SourceNotFound
 
 
-class HttpSource(ChangelogSource):
-    """Base class for HTTP-backed sources.
+class HttpClient:
+    """Reusable HTTP plumbing -- not a Source on its own.
 
-    - Session lifecycle via ``refresh_session``
-    - Exponential-backoff retries on transient (5xx, connection) errors
-    - HTTP 404 -> SourceNotFound; 4xx (auth/rate-limit) -> SourceError (no retry);
-      5xx -> retried then SourceError
+    Both ``HttpSource`` (changelog ABC) and the spec-source classes mix this
+    in so they share session lifecycle, retry policy, and error taxonomy
+    without one inheriting the other's abstract ``fetch`` contract.
     """
 
     # Subclasses can map specific 4xx statuses to custom error messages
@@ -76,3 +75,11 @@ class HttpSource(ChangelogSource):
     async def _fetch_json(self, url: str) -> Any:
         """GET *url* and parse the response body as JSON."""
         return json.loads(await self._fetch_text(url))
+
+
+# MRO order matters: HttpClient first so its __init__ is picked up when
+# subclasses don't define their own (e.g. `RpmSource(HttpSource)`).
+class HttpSource(HttpClient, ChangelogSource):
+    """Changelog source that fetches over HTTP. Combines the ChangelogSource
+    ABC contract with the shared HttpClient plumbing.
+    """

@@ -7,7 +7,7 @@ top of ``src/`` rather than being duplicated in each class.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 
 from .models import ChangelogEntry
 from .sanitize import scrub_external
@@ -60,7 +60,8 @@ def parse_obs_changes(
         try:
             dt = datetime.strptime(date_str, "%a %b %d %H:%M:%S %Z %Y")
         except ValueError:
-            dt = datetime.min
+            # tz-aware so downstream aware/naive comparisons don't crash
+            dt = datetime.min.replace(tzinfo=UTC)
 
         content = "\n".join(lines[1:]).strip()
 

@@ -816,36 +816,41 @@ class Database:
         TTL. Only ``kind='changelog'`` deletes from ``changelog_entries``; other
         kinds only purge their manifest entry (specs evict via the worker's
         respec flow). Returns evicted package names.
+
+        Single CTE with ``FOR UPDATE SKIP LOCKED`` so a concurrent
+        ``touch_manifest`` from ``IngestService`` blocks (or, if it already
+        holds the row lock, eviction simply skips that package this pass).
+        Closes the SELECT-then-DELETE race that the prior two-statement
+        version had under READ COMMITTED.
         """
-        async with self.pool.acquire() as conn, conn.transaction():
-            rows = await conn.fetch(
-                """
-                SELECT p.id, p.name FROM packages p
-                JOIN manifest m ON m.package_id = p.id AND m.kind = $2
-                WHERE m.synced_at < now() - make_interval(secs => $1)
-                """,
-                ttl_seconds,
-                kind,
+        # Each kind targets a different content table; the table name MUST
+        # come from this static whitelist (never user input) so the f-string
+        # interpolation below is safe.
+        content_table = {"changelog": "changelog_entries", "spec": "specs"}.get(kind)
+        content_cte = ""
+        if content_table is not None:
+            content_cte = (
+                f", _del_content AS (DELETE FROM {content_table} "  # noqa: S608
+                "WHERE package_id IN (SELECT package_id FROM stale))"
             )
-            names = [r["name"] for r in rows]
-            if names:
-                ids = [r["id"] for r in rows]
-                if kind == "changelog":
-                    await conn.execute(
-                        "DELETE FROM changelog_entries WHERE package_id = ANY($1::bigint[])",
-                        ids,
-                    )
-                elif kind == "spec":
-                    await conn.execute(
-                        "DELETE FROM specs WHERE package_id = ANY($1::bigint[])",
-                        ids,
-                    )
-                await conn.execute(
-                    "DELETE FROM manifest WHERE package_id = ANY($1::bigint[]) AND kind = $2",
-                    ids,
-                    kind,
-                )
-        return names
+        sql = (
+            "WITH stale AS MATERIALIZED ("  # noqa: S608
+            "  SELECT package_id FROM manifest"
+            "  WHERE kind = $2"
+            "    AND synced_at < now() - make_interval(secs => $1)"
+            "  FOR UPDATE SKIP LOCKED"
+            "),"
+            "_del_manifest AS ("
+            "  DELETE FROM manifest"
+            "  WHERE kind = $2"
+            "    AND package_id IN (SELECT package_id FROM stale)"
+            ")" + content_cte + " "
+            "SELECT p.name FROM packages p "
+            "WHERE p.id IN (SELECT package_id FROM stale)"
+        )
+        async with self.pool.acquire() as conn, conn.transaction():
+            rows = await conn.fetch(sql, ttl_seconds, kind)
+        return [r["name"] for r in rows]
 
     async def get_sync_ages(
         self,

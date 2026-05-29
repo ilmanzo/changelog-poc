@@ -9,9 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from ..config import settings
 from ..ingest import validate_package_name
 from ..runtime import rpm_mgr
-from ._helpers import _format_date, _Readiness
+from ._helpers import _format_date, _Readiness, fetch_recent_releases
 from ._wrap import _tlog, _tool_wrapper
-from .changelog import _fetch_recent_releases
 
 
 @_tool_wrapper("get_dependencies", category="fast")
@@ -62,7 +61,7 @@ async def get_dependency_changes(package: str, n: int = 3, depth: int = 1, refre
         return f"No dependencies resolved for '{package}' (is it installed locally?)."
 
     results = await asyncio.gather(
-        *(_fetch_recent_releases(d, n, refresh) for d in deps_list),
+        *(fetch_recent_releases(d, n, refresh) for d in deps_list),
         return_exceptions=True,
     )
 

@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from urllib.parse import urlparse
 
 import structlog
 
@@ -24,11 +25,31 @@ from .sources.base import SourceError, SourceNotFound
 from .sources.url_router import parse_upstream_url
 
 _PACKAGE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.+]+$")
+_SAFE_UPSTREAM_SCHEMES = {"https"}
 
 
 def validate_package_name(package: str) -> None:
     if not _PACKAGE_NAME_RE.match(package):
         raise ValidationError(f"Invalid package name: {package!r}")
+
+
+def safe_upstream_url(url: str | None) -> str | None:
+    """Sanitise an upstream URL before persisting / fetching from it.
+
+    Returns the URL when it parses as https with a non-empty host; otherwise
+    None. RPM ``URL:`` fields, spec headers, and OBS ``_service`` files are
+    all untrusted -- a malicious entry like ``file:///etc/passwd`` or
+    ``http://internal/api`` must not be stored or fetched.
+    """
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme not in _SAFE_UPSTREAM_SCHEMES or not parsed.hostname:
+        return None
+    return url
 
 
 class IngestStatus(StrEnum):
@@ -86,9 +107,20 @@ class IngestService:
         return self._get_or_start(package, distro)
 
     async def ingest_all_distros(self, package: str) -> list[IngestResult]:
-        """Ingest *package* from every registered distro in parallel."""
+        """Ingest *package* from every registered distro, capped at
+        ``worker_concurrency`` concurrent fetches so we don't DOS upstreams
+        as the distro count grows.
+        """
         distros = self._sources.known_distros
-        return list(await asyncio.gather(*(self.ingest(package, d) for d in distros)))
+        # Defensive lower bound: at least one in-flight, regardless of config.
+        from .config import settings as _settings
+        sem = asyncio.Semaphore(max(1, _settings.worker_concurrency))
+
+        async def _bounded(d: str) -> IngestResult:
+            async with sem:
+                return await self.ingest(package, d)
+
+        return list(await asyncio.gather(*(_bounded(d) for d in distros)))
 
     async def drain_pending(self, timeout_s: float | None = None) -> int:
         """Await any in-flight tasks scheduled via ``schedule``.
@@ -186,7 +218,7 @@ class IngestService:
         package_id = await self._db.upsert_package(
             name=package,
             distro=effective_distro,
-            upstream_url=result.upstream_url,
+            upstream_url=safe_upstream_url(result.upstream_url),
         )
 
         embeddings = await embedder.embed_batch(e.content for e in result.entries)
@@ -234,9 +266,9 @@ class IngestService:
         log: structlog.stdlib.BoundLogger,
     ) -> int:
         """Best-effort: fetch release notes from GitHub/GitLab if URL resolves."""
-        url = upstream_url or await self._db.get_upstream_url(package)
+        url = safe_upstream_url(upstream_url) or await self._db.get_upstream_url(package)
         if not url:
-            url = await self._resolve_upstream_url(package)
+            url = safe_upstream_url(await self._resolve_upstream_url(package))
             if url:
                 await self._db.upsert_package(
                     name=package,
@@ -278,39 +310,15 @@ class IngestService:
         return inserted
 
     async def _resolve_upstream_url(self, package: str) -> str | None:
-        """Try OBS spec header and _service file to find a forge URL.
+        """Ask each source that knows how to find its own upstream URL.
 
-        Hardcoded to openSUSE:Factory because OBS is the only forge in our
-        registry that publishes raw spec + _service over a stable HTTP path.
-        For other distros (Fedora dist-git, Ubuntu Launchpad) the upstream
-        URL has to come from the spec/control file already parsed by their
-        respective Source. Returns None for any non-openSUSE call, which
-        makes the enrichment path a quiet no-op there.
+        Today only ``ObsSource`` implements this -- the resolver is delegated
+        to whichever source carries the knowledge so the ingest layer stays
+        distro-agnostic.
         """
-        import aiohttp as _aiohttp
-
-        from .http_utils import make_client_session
-        from .service_file_parser import extract_urls_from_service
-        from .spec_url_extractor import extract_upstream_urls
-
-        base = "https://api.opensuse.org/public/source/openSUSE:Factory"
-
-        async with make_client_session() as session:
-            for suffix, parser in (
-                (f"/{package}/{package}.spec", extract_upstream_urls),
-                (f"/{package}/_service", extract_urls_from_service),
-            ):
-                try:
-                    async with session.get(base + suffix) as resp:
-                        if resp.status != 200:
-                            continue
-                        text = await resp.text()
-                except _aiohttp.ClientError:
-                    continue
-                urls = parser(text)
-                if urls:
-                    return urls[0]
-
+        obs = self._sources.get_by_name("obs")
+        if obs is not None and hasattr(obs, "resolve_upstream_url"):
+            return await obs.resolve_upstream_url(package)
         return None
 
     async def _stale_fallback(self, package: str) -> tuple[int, datetime | None] | None:

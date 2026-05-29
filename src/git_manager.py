@@ -15,7 +15,9 @@ from .config import settings
 from .ingest import validate_package_name
 from .process import run_subprocess
 
-_ALLOWED_SCHEMES = {"https", "git"}
+# Why: git:// has no transport encryption or auth and the upstream URLs we
+# clone come from spec headers (untrusted). https only.
+_ALLOWED_SCHEMES = {"https"}
 _logger = structlog.get_logger("rpm-mcp.git")
 
 
@@ -27,8 +29,6 @@ class GitManager:
         parsed = urlparse(url)
         if parsed.scheme not in _ALLOWED_SCHEMES:
             raise ValueError(f"Unsupported URL scheme {parsed.scheme!r}: only {_ALLOWED_SCHEMES} allowed")
-        if parsed.scheme == "git":
-            _logger.warning("insecure_git_scheme", url=url, note="git:// has no transport encryption or auth")
 
     def _safe_repo_path(self, package_name: str) -> Path:
         validate_package_name(package_name)

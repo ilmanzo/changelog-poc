@@ -19,18 +19,16 @@ def _gm(tmp_path: Path) -> GitManager:
 # ---------------------------------------------------------------------------
 # _validate_url — sync, pure
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("url", [
-    "https://github.com/foo/bar",
-    "git://github.com/foo/bar",
-], ids=["https", "git"])
-def test_validate_url_valid(url: str, tmp_path: Path) -> None:
-    _gm(tmp_path)._validate_url(url)
+def test_validate_url_valid(tmp_path: Path) -> None:
+    _gm(tmp_path)._validate_url("https://github.com/foo/bar")
 
 
 @pytest.mark.parametrize("url", [
     "http://gitea.example.com/repo",
+    "git://github.com/foo/bar",
     "ftp://example.com/repo",
-], ids=["http", "ftp"])
+    "file:///etc/passwd",
+], ids=["http", "git", "ftp", "file"])
 def test_validate_url_invalid_scheme_raises(url: str, tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unsupported URL scheme"):
         _gm(tmp_path)._validate_url(url)

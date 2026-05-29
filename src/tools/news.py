@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+import structlog
 from mcp.server.fastmcp import FastMCP
 
 from ..config import settings
@@ -12,6 +13,8 @@ from ..ingest import validate_package_name
 from ..runtime import db
 from ._helpers import _format_date
 from ._wrap import _mark_stale, _tlog, _tool_wrapper
+
+_logger = structlog.get_logger("rpm-mcp.tools.news")
 
 
 @_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"), category="fast")
@@ -55,6 +58,7 @@ async def _refresh_testcatalog(package: str, pkg_id: int | None) -> None:
         live_tests = await client.get_tests_for_package(package)
         api_ok = True
     except Exception as exc:
+        _logger.exception("testcatalog_live_failed", package=package)
         _tlog(testcatalog_live_failed=str(exc))
     finally:
         await client.close()
@@ -217,6 +221,7 @@ async def _refresh_testcatalog_bugs(package: str, pkg_id: int | None, limit: int
         live_bugs = await client.get_bugs_for_package(package, limit=limit)
         api_ok = True
     except Exception as exc:
+        _logger.exception("testcatalog_bugs_live_failed", package=package)
         _tlog(testcatalog_bugs_live_failed=str(exc))
     finally:
         await client.close()

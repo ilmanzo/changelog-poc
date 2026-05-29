@@ -37,6 +37,10 @@ class SourceRegistry:
             seen.setdefault(s.distro, None)
         return list(seen)
 
+    def get_by_name(self, name: str) -> ChangelogSource | None:
+        """Return the source instance with ``name`` (e.g. ``"obs"``), or None."""
+        return next((s for s in self._sources if s.name == name), None)
+
     def _filter(self, distro: str | None) -> list[ChangelogSource]:
         if distro is None:
             return self._sources

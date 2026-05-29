@@ -8,8 +8,9 @@ match/listing tables, and the `_Readiness` enum returned by
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from collections.abc import Callable, Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -17,7 +18,7 @@ from ..config import settings
 from ..ingest import IngestStatus
 from ..models import ChangelogEntry
 from ..runtime import db, ingest_service
-from ..version_utils import BSC_RE, CVE_RE, parse_when
+from ..version_utils import BSC_RE, CVE_RE, clean_version, parse_when
 from ._wrap import _mark_stale
 
 # ---------------------------------------------------------------------------
@@ -78,12 +79,17 @@ def parse_when_or_msg(value: str | None, *, kind: str = "since") -> tuple[dateti
     return dt, None
 
 
+_EPOCH_MIN = datetime.min.replace(tzinfo=UTC)
+
+
 def _records_to_entries(rows: list[SqlRow]) -> list[ChangelogEntry]:
+    # Why: DB returns tz-aware timestamps; downstream comparisons against
+    # datetime.now(UTC) raise TypeError on mixed aware/naive datetimes.
     return [
         ChangelogEntry(
             version=r["version"],
             author=r["author"] or "",
-            date=r["entry_date"] or datetime.min,
+            date=r["entry_date"] or _EPOCH_MIN,
             content=r["content"],
         )
         for r in rows
@@ -121,10 +127,18 @@ class _Readiness(Enum):
 
 
 async def _ensure_or_queue(package: str, refresh: bool = False) -> _Readiness:
-    """Never blocks on a fresh ingest for a brand-new package: schedules a
-    background task and returns ``QUEUED`` immediately. For packages already
-    in the cache, falls back to the synchronous refresh path (and preserves
-    the STALE banner via `_mark_stale`).
+    """Two-mode readiness probe (DD10):
+
+    * **Never indexed** -- schedule a background ingest, return ``QUEUED``
+      immediately so the caller can return a "queued, retry shortly" message
+      without blocking the client.
+    * **Already in cache** -- return ``READY`` if fresh; otherwise block on
+      a synchronous refresh. When the refresh degrades to stale-cache
+      (source failed), mark the call via ``_mark_stale`` so the tool wrapper
+      prepends a WARNING banner.
+
+    Callers always get ``READY`` or ``QUEUED`` -- the blocking path is opt-in
+    for stale data and never visible at the call site.
     """
     pkg_id = await db.get_package_id(package)
     if pkg_id is None:
@@ -168,3 +182,34 @@ async def _ensure_and_load_entries(
         return state
     entries = await _load_entries(package)
     return entries or None
+
+
+async def fetch_recent_releases(
+    package: str, n: int, refresh: bool
+) -> list[ReleaseGroup] | Literal[_Readiness.QUEUED] | None:
+    """Group cached entries by cleaned version; return the latest *n* groups.
+
+    Shared between ``changelog.get_recent_releases`` and ``deps.get_dependency_changes``
+    -- the deps tool fans this out per-dependency for the BFS aggregation.
+    """
+    n = max(1, min(n, 50))
+    entries = await _ensure_and_load_entries(package, refresh)
+    if entries is _Readiness.QUEUED:
+        return entries
+    if entries is None:
+        return None
+
+    groups: dict[str, list[ChangelogEntry]] = defaultdict(list)
+    for e in entries:
+        key = clean_version(e.version) or str(e.version) or "unknown"
+        groups[key].append(e)
+
+    ordered = sorted(
+        groups.items(),
+        key=lambda kv: max(x.date for x in kv[1]),
+        reverse=True,
+    )[:n]
+    return [
+        (ver, max(x.date for x in items), sorted(items, key=lambda x: x.date, reverse=True))
+        for ver, items in ordered
+    ]

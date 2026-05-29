@@ -1012,19 +1012,19 @@ Prefer (b) unless we expect more source types to land soon.
 
 ### Priority order
 
-| # | Item | Why |
-|---|---|---|
-| 1 | C1 (semantic_search model filter) | Silent ranking corruption — biggest bang for buck |
-| 2 | C2 (alru_cache TTL) | `refresh=True` broken — user-facing |
-| 3 | C3 (background task orphan) | UX promise broken in CLI mode |
-| 4 | C4 (N+1 upserts) | 200x speedup on testcatalog ingest |
-| 5 | C5 (docs vs reality) | Pick (b); 5-minute fix |
-| 6 | C6 (evict_stale race) | Silent data loss at scale |
-| 7 | C7 (naive datetime) | Crash-class bug; cheap fix |
-| 8 | C10, C11, C12 (security batch) | Cheap, one PR |
-| 9 | C13 (find_core_packages batch rpm) | Latency cliff at n=200 |
-| 10 | C18, C19 (ops + dead code) | Hygiene |
-| 11 | C8, C9, C16, C17 (refactor batch) | Cleanup before more tools land |
-| 12 | C20, C21, C22, C23 (polish batch) | Ride alongside other PRs |
-| — | C14 (semaphore) | Trivial; ride alongside C13 |
-| — | C15 (DI refactor) | Deferred — only if test pain grows |
+| # | Item | Why | Status |
+|---|---|---|---|
+| 1 | C1 (semantic_search model filter) | Silent ranking corruption | DONE |
+| 2 | C2 (alru_cache TTL) | `refresh=True` broken | DONE |
+| 3 | C3 (background task orphan) | UX promise broken in CLI mode | DONE |
+| 4 | C4 (N+1 upserts) | 200x speedup on testcatalog ingest | DONE |
+| 5 | C5 (docs vs reality) | 5-minute fix | DONE |
+| 6 | C6 (evict_stale race) | Silent data loss at scale | DONE (single CTE + FOR UPDATE SKIP LOCKED) |
+| 7 | C7 (naive datetime) | Crash-class bug | DONE |
+| 8 | C10, C11, C12 (security batch) | Cheap, one PR | DONE |
+| 9 | C13 (find_core_packages batch rpm) | -- | SKIPPED -- `rpm -q --whatrequires pkg1 pkg2` returns a union with no per-package attribution; batching is incompatible with ranking. Use C14-style semaphore if hammering becomes a problem. |
+| 10 | C18, C19 (ops + dead code) | Hygiene | DONE |
+| 11 | C8, C9, C16, C17 (refactor batch) | Cleanup before more tools land | DONE (C8 spec sources via HttpClient mixin; C9 resolver on ObsSource; C16 fetch_recent_releases moved to _helpers; C17 docstring tightened, no API split) |
+| 12 | C14 (ingest_all_distros semaphore) | Trivial | DONE |
+| 13 | C20, C21, C22, C23 (polish batch) | Ride alongside other PRs | TODO |
+| — | C15 (DI refactor) | Deferred -- only if test pain grows | DEFERRED |

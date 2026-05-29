@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 from datetime import UTC, datetime
-from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -23,7 +21,6 @@ from ._helpers import (
     MSG_PKG_NOT_FOUND_SHORT,
     MSG_PKG_QUEUED,
     MSG_UNTIL_UNPARSEABLE,
-    ReleaseGroup,
     _ensure_and_load_entries,
     _format_date,
     _format_listing_rows,
@@ -32,6 +29,7 @@ from ._helpers import (
     _records_to_entries,
     _validate_bug_id,
     _validate_cve_id,
+    fetch_recent_releases,
     parse_when_or_msg,
     queued_msg_or_none,
 )
@@ -91,7 +89,7 @@ async def analyze_package_diff(
 async def get_recent_releases(package: str, n: int = 3, refresh: bool = False) -> str:
     """Last *n* distinct releases of *package*, grouped by version."""
     validate_package_name(package)
-    groups = await _fetch_recent_releases(package, n, refresh)
+    groups = await fetch_recent_releases(package, n, refresh)
     if groups is _Readiness.QUEUED:
         return MSG_PKG_QUEUED.format(package)
     if groups is None:
@@ -376,32 +374,6 @@ async def _fetch_git_logs(
     if start_date and end_date:
         return await git_mgr.get_logs_between_timestamps(repo_path, start_date, end_date)
     return ""
-
-
-async def _fetch_recent_releases(
-    package: str, n: int, refresh: bool
-) -> list[ReleaseGroup] | Literal[_Readiness.QUEUED] | None:
-    n = max(1, min(n, 50))
-    entries = await _ensure_and_load_entries(package, refresh)
-    if entries is _Readiness.QUEUED:
-        return entries
-    if entries is None:
-        return None
-
-    groups: dict[str, list[ChangelogEntry]] = defaultdict(list)
-    for e in entries:
-        key = clean_version(e.version) or str(e.version) or "unknown"
-        groups[key].append(e)
-
-    ordered = sorted(
-        groups.items(),
-        key=lambda kv: max(x.date for x in kv[1]),
-        reverse=True,
-    )[:n]
-    return [
-        (ver, max(x.date for x in items), sorted(items, key=lambda x: x.date, reverse=True))
-        for ver, items in ordered
-    ]
 
 
 # ---------------------------------------------------------------------------

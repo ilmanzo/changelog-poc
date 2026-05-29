@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from importlib.metadata import PackageNotFoundError, version
 
 import aiohttp
 
@@ -13,10 +14,21 @@ HTTP_TIMEOUT = aiohttp.ClientTimeout(
     connect=settings.obs_timeout_connect,
 )
 
+try:
+    _PKG_VERSION = version("rpm-mcp")
+except PackageNotFoundError:
+    _PKG_VERSION = "dev"
+
+# Why: anonymous requests are subject to per-host UA quotas (GitHub, Pagure,
+# OBS); identifiable traffic also lets upstream operators reach out before
+# blocking. Caller-provided headers always win.
+USER_AGENT = f"rpm-mcp/{_PKG_VERSION} (+https://github.com/ilmanzo/changelog-poc)"
+
 
 def make_client_session(*, headers: dict[str, str] | None = None) -> aiohttp.ClientSession:
     """Return a new aiohttp.ClientSession with the project-wide timeout."""
-    return aiohttp.ClientSession(timeout=HTTP_TIMEOUT, headers=headers)
+    merged = {"User-Agent": USER_AGENT, **(headers or {})}
+    return aiohttp.ClientSession(timeout=HTTP_TIMEOUT, headers=merged)
 
 
 async def refresh_session(

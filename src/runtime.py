@@ -26,7 +26,6 @@ from .sources import (
     SourceRegistry,
     UbuntuSource,
 )
-from .test_repo_manager import TestRepoManager
 
 _logger = structlog.get_logger("rpm-mcp.server")
 
@@ -38,7 +37,6 @@ source_registry = SourceRegistry(
     strategy=FetchStrategy(settings.fetch_strategy),
 )
 ingest_service = IngestService(source_registry, db)
-test_repo_mgr = TestRepoManager()
 
 
 @asynccontextmanager
