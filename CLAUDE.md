@@ -94,7 +94,7 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 
 - **`mcp_server.py`** — FastMCP entrypoint; delegates singletons/lifespan to `src/runtime.py`, tool registration to `src/tools/`, CLI dispatch to `src/cli.py`.
 - **`src/runtime.py`** — process-wide singletons (`db`, `rpm_mgr`, `git_mgr`, `source_registry`, `ingest_service`) + `lifespan` async context manager. Single source of truth shared by tools and CLI.
-- **`src/tools/`** — tool modules grouped by concern: `changelog.py` (10 tools), `deps.py` (4 tools), `spec.py` (1 tool), `news.py` (3 tools). Each module exposes `register(mcp)` + a `CLI_TOOLS` tuple aggregated in `src/tools/__init__.py`. Cross-cutting helpers in `_wrap.py` (decorator, structlog ctxvars, stale banner) and `_helpers.py` (validation, formatters, `_ensure_or_queue` fast-fail probe).
+- **`src/tools/`** — tool modules grouped by concern: `changelog.py` (12 tools), `deps.py` (4 tools), `spec.py` (1 tool), `news.py` (5 tools). Each module exposes `register(mcp)` + a `CLI_TOOLS` tuple aggregated in `src/tools/__init__.py`. Cross-cutting helpers in `_wrap.py` (decorator, structlog ctxvars, stale banner) and `_helpers.py` (validation, formatters, `_ensure_or_queue` fast-fail probe).
 - **`src/cli.py`** — argparse subparser auto-generated from each tool's signature; `run_cli(serve)` dispatches `serve` or one-shot tool call.
 - **`src/db.py`** — `Database` class wraps the asyncpg pool, registers pgvector codec, applies migrations on startup. Owns *all* SQL — no other module talks to Postgres directly.
 - **`src/embedder.py`** — fastembed singleton; `embed_one`, `embed_batch`, `chunk_text` (1000/100 sliding window).
@@ -113,34 +113,41 @@ Registry dispatches per capability; fetch strategies (`waterfall` | `parallel`) 
 - **Per-capability source dispatch**: changelog-poc's single-purpose `ChangelogSource` is widened to a multi-capability `Source` so news/openQA/spec fetchers share registry + lifecycle.
 - **No Podman dependency**: `get_expanded_spec` and `expand` CLI from rpm-spec-assistant were dropped.
 
-## MCP tool surface (target — built phase-by-phase)
+## MCP tool surface
 
-| Tool | Phase | Notes |
+| Tool | Module | Notes |
 |---|---|---|
-| `analyze_package_diff(pkg, v_start, v_end, deep, refresh)` | 1 | semver/fuzzy/string version filter |
-| `get_recent_releases(pkg, n, refresh)` | 1 | last *n* versions, grouped |
-| `get_changes_in_range(pkg, since, until, refresh)` | 1 | ISO 8601 or natural-language dates via `dateparser` |
-| `get_dependencies(pkg)` / `get_reverse_dependencies(pkg)` | 1 | from `deps` table |
-| `find_cve(cve_id, package)` | 1 | substring search on changelog content |
-| `list_cves(package, since)` | 1 | list all CVE IDs in a package changelog (optional date filter) |
-| `find_bug(bug_id, package)` | 1 | search for bsc#/boo#/bnc# bug reference in changelogs |
-| `list_bugs(package, since)` | 1 | list all SUSE/openSUSE bugzilla refs in a package changelog |
-| `get_dependency_changes(pkg, n, depth, refresh)` | 1 | BFS over `deps`, capped by `F4_MAX_PACKAGES` |
-| `sync_package(pkg)` | 1 | thin wrapper over `IngestService.ingest` |
-| `semantic_search(query, limit)` | 1 | pgvector cosine over `changelog_entries.embedding` |
-| `fts_search(query, limit, since)` | 1 | tsvector over `changelog_entries.tsv`, optional date filter |
-| `get_spec_details(pkg, source)` | 2 | AST sections via `python-specfile` |
-| `get_news(pkg, limit)` | 3 | from `news` table |
-| `get_openqa_tests(pkg)` | 3 | from `openqa_tests` table |
+| `analyze_package_diff(pkg, v_start, v_end, deep, refresh)` | changelog | semver/fuzzy/string version filter |
+| `get_recent_releases(pkg, n, refresh)` | changelog | last *n* versions, grouped |
+| `get_changes_in_range(pkg, since, until, refresh)` | changelog | ISO 8601 or natural-language dates via `dateparser` |
+| `compare_versions(pkg, v1, v2)` | changelog | side-by-side version comparison |
+| `find_cve(cve_id, package)` | changelog | substring search on changelog content |
+| `list_cves(package, since)` | changelog | list all CVE IDs in a package changelog (optional date filter) |
+| `find_bug(bug_id, package)` | changelog | search for bsc#/boo#/bnc# bug reference in changelogs |
+| `list_bugs(package, since)` | changelog | list all SUSE/openSUSE bugzilla refs in a package changelog |
+| `semantic_search(query, limit)` | changelog | pgvector cosine over `changelog_entries.embedding` |
+| `fts_search(query, limit, since)` | changelog | tsvector over `changelog_entries.tsv`, optional date filter |
+| `sync_package(pkg)` | changelog | thin wrapper over `IngestService.ingest` |
+| `sync_all_distros(pkg)` | changelog | re-ingest a package across all distros |
+| `get_dependencies(pkg)` | deps | from `deps` table |
+| `get_reverse_dependencies(pkg)` | deps | reverse dependency lookup |
+| `get_dependency_changes(pkg, n, depth, refresh)` | deps | BFS over `deps`, capped by `F4_MAX_PACKAGES` |
+| `find_core_packages(limit)` | deps | identify high-fan-in core packages |
+| `get_spec_details(pkg, source)` | spec | AST sections via `python-specfile` |
+| `get_news(pkg, limit)` | news | from `news` table |
+| `get_test_coverage(pkg)` | news | openQA + TestCatalog test mappings |
+| `find_bugs_in_tests(pkg)` | news | tests referencing known bug IDs |
+| `get_sync_status(pkg)` | news | ingestion manifest and staleness info |
+| `find_untested_changes(pkg, since)` | news | security fixes with no test coverage |
 
 ## Phased build status
 
 - Phase 0 — scaffold: done
-- Phase 1 — changelog parity with changelog-poc: done (all 8 tools wired to Postgres)
+- Phase 1 — changelog parity with changelog-poc: done (12 tools wired to Postgres)
 - Phase 2 — spec assistant features: done (get_spec_details only; LLM-backed tools dropped — MCP clients have their own LLM)
-- Phase 3 — news + openQA: done (get_news, get_openqa_tests)
-- Phase 4 — centralised worker + bench tuning
-- Phase 4.5 — unit tests + coverage: done (181 tests, 73% coverage; see plan.md)
+- Phase 3 — news + openQA: done (get_news, get_test_coverage, find_untested_changes, find_bugs_in_tests, get_sync_status)
+- Phase 4 — centralised worker + bench tuning: done
+- Phase 4.5 — unit tests + coverage: done (359 tests, 63% coverage)
 - Phase 5 — production hardening: resilience, worker daemon, ops artifacts (see plan.md Phase 5 section)
 - Phase 6 — Go port (deferred)
 
