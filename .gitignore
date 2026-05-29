@@ -39,6 +39,10 @@ infra/pg_data/
 # Claude Code workspace state (private memory + local settings)
 .claude/
 
+# Ad-hoc scripts dropped by agentic clients (gemini, claude) during demos
+/*.py
+!/mcp_server.py
+
 # OS
 .DS_Store
 Thumbs.db
