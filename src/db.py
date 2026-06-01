@@ -291,6 +291,18 @@ class Database:
             )
         return len(rows)
 
+    async def count_entries(self, package_id: int) -> int:
+        """Cheap row-count for *package_id*, using the package_id index.
+
+        Used by the stale-fallback path which only needs existence + count,
+        not the row data.
+        """
+        async with self.pool.acquire() as conn:
+            return await conn.fetchval(
+                "SELECT COUNT(*) FROM changelog_entries WHERE package_id = $1",
+                package_id,
+            ) or 0
+
     async def fetch_entries(self, package_id: int, limit: int | None = None) -> list[asyncpg.Record]:
         q = """
             SELECT version, author, entry_date, content

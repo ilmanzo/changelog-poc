@@ -113,3 +113,42 @@ def scrub_external(
         text = encoded.decode("utf-8", errors="ignore")
         text += f"\n[...truncated at {cap} bytes]"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Secret scrubbing for log payloads
+# ---------------------------------------------------------------------------
+# Why: aiohttp / asyncpg exceptions can capture the full request URL or
+# headers in their stringified form. If an upstream redirected with a
+# query-string token, or a misconfigured DSN includes a password, that
+# string lands verbatim in structlog. The DSN scrubber in Database is
+# DSN-specific; this one is generic and applied wherever an exception is
+# turned into a `error=...` log field.
+
+_BASIC_AUTH_RE = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+:[^/@\s]+@")
+_QUERY_SECRET_RE = re.compile(
+    r"(?P<key>(?:access_)?token|api[_-]?key|private[_-]?token|secret|password|"
+    r"sig|signature|x[_-]api[_-]key)=([^&\s'\"]+)",
+    re.IGNORECASE,
+)
+_HEADER_AUTH_RE = re.compile(
+    r"(?P<key>authorization|private-token|x-api-key)\s*:\s*"
+    r"(?:Bearer\s+|Basic\s+|Token\s+)?['\"]?[^'\",\s)]+",
+    re.IGNORECASE,
+)
+
+
+def scrub_secrets(text: str) -> str:
+    """Redact tokens, basic-auth credentials, and auth headers from *text*.
+
+    Applied to exception messages before they are logged so accidental
+    credential capture (URL with embedded token, redirected request with
+    Bearer header in the error payload, etc.) does not land in structlog.
+    Returns the input unchanged if no secret-shaped substring is present.
+    """
+    if not text:
+        return text
+    text = _BASIC_AUTH_RE.sub(r"\g<scheme>***:***@", text)
+    text = _QUERY_SECRET_RE.sub(r"\g<key>=***", text)
+    text = _HEADER_AUTH_RE.sub(r"\g<key>: ***", text)
+    return text

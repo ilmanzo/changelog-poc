@@ -75,9 +75,19 @@ RELEASES_JSON: list[dict[str, object]] = [
 
 
 def _resp_ctx(status: int, payload: object | None = None) -> MagicMock:
+    body = json.dumps(payload) if payload is not None else ""
     resp = MagicMock()
     resp.status = status
-    resp.text = AsyncMock(return_value=json.dumps(payload) if payload is not None else "")
+    resp.text = AsyncMock(return_value=body)
+    resp.charset = "utf-8"
+    resp.content_length = None
+    body_bytes = body.encode("utf-8")
+
+    async def _iter(_chunk_size: int) -> object:
+        yield body_bytes
+
+    resp.content = MagicMock()
+    resp.content.iter_chunked = _iter
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=resp)
     ctx.__aexit__ = AsyncMock(return_value=False)

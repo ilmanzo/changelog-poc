@@ -319,12 +319,14 @@ class IngestService:
         """If we have cached rows for *package*, return (count, synced_at).
 
         Returns ``None`` when no cache exists (caller should report EMPTY).
+        Uses ``count_entries`` instead of ``fetch_entries`` so a package with
+        100k rows doesn't materialise everything just to report a count.
         """
         pkg_id = await self._db.get_package_id(package)
         if pkg_id is None:
             return None
-        rows = await self._db.fetch_entries(pkg_id)
-        if not rows:
+        count = await self._db.count_entries(pkg_id)
+        if count == 0:
             return None
         synced_at = await self._db.get_synced_at(pkg_id)
-        return len(rows), synced_at
+        return count, synced_at

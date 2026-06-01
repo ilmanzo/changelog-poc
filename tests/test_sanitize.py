@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.sanitize import scrub_external
+from src.sanitize import scrub_external, scrub_secrets
 
 
 @pytest.mark.parametrize("text", ["", None])
@@ -132,3 +132,59 @@ def test_injection_heuristic_below_threshold_silent(
     payload = "CVE writeup: attacker passes 'ignore previous instructions'."
     scrub_external(payload, source="bodhi", package="curl")
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# scrub_secrets
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("text", ["", None])
+def test_scrub_secrets_passthrough_empty(text: str | None) -> None:
+    assert scrub_secrets(text) == text  # type: ignore[arg-type]
+
+
+def test_scrub_secrets_unchanged_for_clean_text() -> None:
+    assert scrub_secrets("HTTP 500 for https://api.example.com/v1/pkg") == \
+        "HTTP 500 for https://api.example.com/v1/pkg"
+
+
+def test_scrub_secrets_basic_auth_url() -> None:
+    out = scrub_secrets("ConnectionError: cannot reach https://alice:s3cret@api.example.com/x")
+    assert "s3cret" not in out
+    assert "alice" not in out
+    assert "https://***:***@api.example.com/x" in out
+
+
+def test_scrub_secrets_query_string_token() -> None:
+    out = scrub_secrets("HTTP 502 for https://api.example.com/x?token=abcdef123&page=1")
+    assert "abcdef123" not in out
+    assert "token=***" in out
+    assert "page=1" in out  # non-secret params preserved
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["api_key", "api-key", "access_token", "private_token", "private-token",
+     "secret", "password", "signature", "x-api-key"],
+)
+def test_scrub_secrets_query_keys(key: str) -> None:
+    out = scrub_secrets(f"failed: https://h/x?{key}=topsecret-AAAA")
+    assert "topsecret-AAAA" not in out
+    assert f"{key}=***" in out
+
+
+def test_scrub_secrets_authorization_header_in_log() -> None:
+    out = scrub_secrets("RequestError: Authorization: Bearer ey-jwt-blob.payload.sig at line 1")
+    assert "ey-jwt-blob.payload.sig" not in out
+    assert "Authorization: ***" in out
+
+
+def test_scrub_secrets_gitlab_private_token_header() -> None:
+    out = scrub_secrets("RequestError: PRIVATE-TOKEN: glpat-AAAABBBBCCCC at line 42")
+    assert "glpat-AAAABBBBCCCC" not in out
+    assert "PRIVATE-TOKEN: ***" in out
+
+
+def test_scrub_secrets_postgres_dsn_password() -> None:
+    out = scrub_secrets("could not connect: postgresql://rpm_mcp:hunter2@db.internal:5432/rpm")
+    assert "hunter2" not in out
+    assert "postgresql://***:***@db.internal:5432/rpm" in out

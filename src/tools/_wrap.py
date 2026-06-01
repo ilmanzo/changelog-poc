@@ -15,6 +15,7 @@ import asyncpg
 import structlog
 
 from ..errors import DBError, ValidationError
+from ..sanitize import scrub_secrets
 from ..sources.base import SourceError, SourceNotFound
 
 _logger = structlog.get_logger("rpm-mcp.server")
@@ -132,7 +133,7 @@ def _tool_wrapper(
                     "Try a more specific query, or use the worker for large operations."
                 )
             except ValidationError as e:
-                log.warning("tool_validation_error", error=str(e), duration_ms=_ms())
+                log.warning("tool_validation_error", error=scrub_secrets(str(e)), duration_ms=_ms())
                 return f"Invalid input: {e}"
             except SourceNotFound:
                 log.info("tool_source_not_found", duration_ms=_ms())
@@ -140,12 +141,14 @@ def _tool_wrapper(
             except SourceError as e:
                 # Why: log the raw error for ops but don't echo it back -- source
                 # errors can include internal URLs and upstream status payloads.
-                log.warning("tool_source_error", error=str(e), duration_ms=_ms())
+                # scrub_secrets strips embedded credentials before structlog
+                # captures them (URL ?token=..., basic-auth user:pass@, etc.).
+                log.warning("tool_source_error", error=scrub_secrets(str(e)), duration_ms=_ms())
                 return "Data source temporarily unavailable. Try again later or check your network connection."
             except (DBError, asyncpg.PostgresError) as e:
                 # DB error messages can include SQL fragments, schema names, and
                 # connection metadata -- log them but keep the reply opaque.
-                log.error("tool_db_error", error=str(e), duration_ms=_ms())
+                log.error("tool_db_error", error=scrub_secrets(str(e)), duration_ms=_ms())
                 return "Database error -- ingestion is degraded. Check the server logs."
             except Exception:
                 # Catch-all: log full traceback + extras, but reply with a stable

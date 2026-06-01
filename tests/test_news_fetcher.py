@@ -19,12 +19,29 @@ from src.news_fetcher import (
 
 
 def _resp_ctx(status: int = 200, text: str = "", json_body: Any = None) -> MagicMock:
-    """Build the async-context-manager mock returned by session.get(url)."""
+    """Build the async-context-manager mock returned by session.get(url).
+
+    Wires the fields read_bounded_text needs (content_length, charset,
+    content.iter_chunked); legacy .text()/.json() are kept for any
+    transitional callers but news_fetcher now uses read_bounded_text +
+    json.loads.
+    """
+    import json as _json
+
+    body = _json.dumps(json_body) if json_body is not None else text
     resp = MagicMock()
     resp.status = status
-    resp.text = AsyncMock(return_value=text)
+    resp.text = AsyncMock(return_value=body)
     resp.json = AsyncMock(return_value=json_body if json_body is not None else {})
+    resp.charset = "utf-8"
+    resp.content_length = None
+    body_bytes = body.encode("utf-8")
 
+    async def _iter(_chunk_size: int) -> object:
+        yield body_bytes
+
+    resp.content = MagicMock()
+    resp.content.iter_chunked = _iter
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=resp)
     ctx.__aexit__ = AsyncMock(return_value=False)

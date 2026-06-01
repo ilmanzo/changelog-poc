@@ -19,10 +19,24 @@ class _ConcreteSource(HttpSource):
 
 
 def _resp_ctx(status: int, text: str = "") -> MagicMock:
-    """Return an async-context-manager mock for session.get(url)."""
+    """Return an async-context-manager mock for session.get(url).
+
+    Sets the fields ``read_bounded_text`` looks at: ``content_length=None``
+    skips the up-front size check, and ``content.iter_chunked`` yields the
+    body in one chunk.
+    """
     resp = MagicMock()
     resp.status = status
     resp.text = AsyncMock(return_value=text)
+    resp.charset = "utf-8"
+    resp.content_length = None
+    body_bytes = text.encode("utf-8")
+
+    async def _iter(_chunk_size: int) -> object:
+        yield body_bytes
+
+    resp.content = MagicMock()
+    resp.content.iter_chunked = _iter
     resp.request_info = MagicMock()
     resp.history = []
 

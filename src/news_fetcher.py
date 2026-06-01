@@ -7,12 +7,13 @@ its own tool layer if/when needed.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import structlog
 from defusedxml import ElementTree as DefusedET
 
-from .http_utils import get_shared_session
+from .http_utils import MAX_REDIRECTS, get_shared_session, read_bounded_text
 from .models import NewsItem
 from .sanitize import scrub_external
 
@@ -37,11 +38,11 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
     url = f"{BODHI_URL}/?rows_per_page={limit}&status=testing"
     try:
         session = get_shared_session()
-        async with session.get(url) as resp:
+        async with session.get(url, max_redirects=MAX_REDIRECTS) as resp:
             if resp.status != 200:
                 _logger.warning("bodhi_http", status=resp.status)
                 return items
-            data = await resp.json()
+            data = json.loads(await read_bounded_text(resp))
         for u in data.get("updates", []):
             raw_title = u.get("title") or ""
             pkg = _pkg_from_title(raw_title) if raw_title else None
@@ -82,11 +83,11 @@ async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
     items: list[NewsItem] = []
     try:
         session = get_shared_session()
-        async with session.get(OPENSUSE_NEWS_URL) as resp:
+        async with session.get(OPENSUSE_NEWS_URL, max_redirects=MAX_REDIRECTS) as resp:
             if resp.status != 200:
                 _logger.warning("opensuse_news_http", status=resp.status)
                 return items
-            text = await resp.text()
+            text = await read_bounded_text(resp)
         root = DefusedET.fromstring(text)
         for entry in root.iter("item"):
             if len(items) >= limit:

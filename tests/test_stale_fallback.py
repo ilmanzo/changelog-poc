@@ -26,6 +26,7 @@ def _registry_returns(result: FetchResult) -> AsyncMock:
 def _db_with_cache(rows: list[dict] | None) -> AsyncMock:
     db = AsyncMock()
     db.get_package_id = AsyncMock(return_value=42 if rows else None)
+    db.count_entries = AsyncMock(return_value=len(rows) if rows else 0)
     db.fetch_entries = AsyncMock(return_value=rows or [])
     db.get_synced_at = AsyncMock(return_value=_SYNCED_AT if rows else None)
     db.upsert_package = AsyncMock(return_value=42)

@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 from ..config import settings
 from ..ingest import validate_package_name
 from ..runtime import db
+from ..sanitize import scrub_secrets
 from ..testcatalog_client import TestCatalogClient
 from ._helpers import _format_date
 from ._wrap import _mark_stale, _tlog, _tool_wrapper
@@ -70,7 +71,7 @@ async def _refresh_via_testcatalog(
         api_ok = True
     except (aiohttp.ClientError, TimeoutError) as exc:
         _logger.exception(f"{kind}_live_failed", package=package)
-        _tlog(**{f"{kind}_live_failed": str(exc)})
+        _tlog(**{f"{kind}_live_failed": scrub_secrets(str(exc))})
     finally:
         await client.close()
 

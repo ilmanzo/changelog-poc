@@ -60,10 +60,17 @@ async def embed_batch(texts: Iterable[str]) -> list[list[float]]:
     """Embed a batch of strings. On failure returns ``[[]] * len(texts)``
     so callers can ``zip`` with the originals without extra fallback code --
     empty-vector rows end up with a NULL embedding column at the DB layer.
+
+    Inputs above ``embedding_max_inputs`` are truncated (with a warning)
+    so an accidentally-large generator can't OOM the embedder.
     """
     texts = list(texts)
     if not texts:
         return []
+    cap = settings.embedding_max_inputs
+    if len(texts) > cap:
+        _logger.warning("embed_batch_truncated", requested=len(texts), cap=cap)
+        texts = texts[:cap]
     try:
         model = await _get_model()
         return await asyncio.to_thread(_embed_sync, model, texts, settings.embedding_batch_size)
@@ -78,9 +85,15 @@ def chunk_text(text: str) -> list[str]:
     Example (size=10, overlap=3, step=7):
       "abcdefghijklmnopqrst" -> ["abcdefghij", "hijklmnopq", "nopqrst"]
       Last chunk is anchored to the end of the text to avoid a short tail chunk.
+
+    Input above ``cache_max_entry_bytes`` is truncated first so a pathological
+    multi-megabyte spec section can't produce 100k+ chunks.
     """
     size = settings.embedding_chunk_size
     overlap = settings.embedding_chunk_overlap
+    cap_bytes = settings.cache_max_entry_bytes
+    if cap_bytes and len(text.encode("utf-8")) > cap_bytes:
+        text = text.encode("utf-8")[:cap_bytes].decode("utf-8", errors="ignore")
     if len(text) <= size:
         return [text]
     step = size - overlap
@@ -88,4 +101,9 @@ def chunk_text(text: str) -> list[str]:
     last_start = positions[-1] if positions else -1
     if last_start + size < len(text):
         positions.append(len(text) - size)
-    return [text[i : i + size] for i in positions]
+    chunks = [text[i : i + size] for i in positions]
+    max_chunks = settings.embedding_max_chunks
+    if max_chunks and len(chunks) > max_chunks:
+        _logger.warning("chunk_text_truncated", produced=len(chunks), cap=max_chunks)
+        chunks = chunks[:max_chunks]
+    return chunks

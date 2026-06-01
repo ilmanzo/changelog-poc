@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 100
     embedding_chunk_size: int = 1000  # spec-section chunk size in chars
     embedding_chunk_overlap: int = 100
+    # Why: embed_batch materialises its input into a list before handing
+    # off to fastembed; a caller passing a multi-million-item generator
+    # would OOM. chunk_text similarly has no built-in cap.
+    embedding_max_inputs: int = 10_000  # hard cap per embed_batch call
+    embedding_max_chunks: int = 1_000   # hard cap on chunk_text output
 
     # Logging
     log_format: str = "text"  # "json" for structured prod logs

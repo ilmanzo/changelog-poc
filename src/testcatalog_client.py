@@ -16,13 +16,14 @@ Each Test object has:
 
 from __future__ import annotations
 
+import json
 import re
 
 import aiohttp
 import structlog
 
 from .config import settings
-from .http_utils import get_shared_session
+from .http_utils import MAX_REDIRECTS, get_shared_session, read_bounded_text
 from .models import BugReference, OpenQATest
 from .openqa_fetcher import _PKG_RE, _SUMMARY_RE
 from .sanitize import scrub_external
@@ -79,11 +80,16 @@ class TestCatalogClient:
         for _ in range(_MAX_PAGES):
             url = f"{self._base}/api/v1/tests"
             params = {"q": package, "limit": str(_PAGE_SIZE), "skip": str(skip)}
-            async with session.get(url, params=params, headers=self._auth_headers) as resp:
+            async with session.get(
+                url,
+                params=params,
+                headers=self._auth_headers,
+                max_redirects=MAX_REDIRECTS,
+            ) as resp:
                 if resp.status == 404:
                     break
                 resp.raise_for_status()
-                page: list[dict] = await resp.json()
+                page: list[dict] = json.loads(await read_bounded_text(resp))
 
             if not page:
                 break
@@ -141,11 +147,16 @@ class TestCatalogClient:
         session = await self._get_session()
         url = f"{self._base}/api/v1/analytics/search"
         params = {"q": package, "scope": "bugs", "size": str(max(1, min(limit, 100)))}
-        async with session.get(url, params=params, headers=self._auth_headers) as resp:
+        async with session.get(
+            url,
+            params=params,
+            headers=self._auth_headers,
+            max_redirects=MAX_REDIRECTS,
+        ) as resp:
             if resp.status == 404:
                 return []
             resp.raise_for_status()
-            payload = await resp.json()
+            payload = json.loads(await read_bounded_text(resp))
 
         hits = payload.get("hits") or []
         out: list[BugReference] = []

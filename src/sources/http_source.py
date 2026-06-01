@@ -14,7 +14,7 @@ from tenacity import (
 )
 
 from ..config import settings
-from ..http_utils import get_shared_session
+from ..http_utils import MAX_REDIRECTS, get_shared_session, read_bounded_text
 from .base import ChangelogSource, SourceError, SourceNotFound
 
 
@@ -62,7 +62,11 @@ class HttpClient:
         ):
             with attempt:
                 session = await self._get_session()
-                async with session.get(url, headers=self._extra_headers) as resp:
+                async with session.get(
+                    url,
+                    headers=self._extra_headers,
+                    max_redirects=MAX_REDIRECTS,
+                ) as resp:
                     if resp.status == 404:
                         raise SourceNotFound(url)
                     if 400 <= resp.status < 500:
@@ -73,7 +77,7 @@ class HttpClient:
                         raise aiohttp.ClientConnectionError(f"HTTP {resp.status} for {url}")
                     if resp.status != 200:
                         raise SourceError(f"HTTP {resp.status} for {url}")
-                    return await resp.text()
+                    return await read_bounded_text(resp)
 
         raise SourceError(f"All retries exhausted for {url}")
 

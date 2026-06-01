@@ -11,10 +11,22 @@ from src.testcatalog_client import TestCatalogClient
 
 
 def _resp_ctx(status: int, payload: object | None = None) -> MagicMock:
+    import json as _json
+
+    body = _json.dumps(payload) if payload is not None else "[]"
     resp = MagicMock()
     resp.status = status
     resp.raise_for_status = MagicMock(return_value=None)
     resp.json = AsyncMock(return_value=payload if payload is not None else [])
+    resp.charset = "utf-8"
+    resp.content_length = None
+    body_bytes = body.encode("utf-8")
+
+    async def _iter(_chunk_size: int) -> object:
+        yield body_bytes
+
+    resp.content = MagicMock()
+    resp.content.iter_chunked = _iter
     ctx = MagicMock()
     ctx.__aenter__ = AsyncMock(return_value=resp)
     ctx.__aexit__ = AsyncMock(return_value=False)
