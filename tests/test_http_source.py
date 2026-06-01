@@ -39,31 +39,15 @@ def _mock_session(status: int, text: str = "") -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# close()
+# close() — no-op now that sessions are shared via http_utils
 # ---------------------------------------------------------------------------
-async def test_close_open_session_calls_close() -> None:
+async def test_close_is_noop() -> None:
+    """HttpClient.close() no longer owns a session; the shared one is closed
+    centrally during shutdown via http_utils.close_shared_session.
+    """
     src = _ConcreteSource()
-    mock_session = AsyncMock()
-    mock_session.closed = False
-    src._session = mock_session
-
-    await src.close()
-    mock_session.close.assert_awaited_once()
-
-
-async def test_close_none_session_is_noop() -> None:
-    src = _ConcreteSource()
-    src._session = None
-    await src.close()  # no exception
-
-
-async def test_close_already_closed_session_is_noop() -> None:
-    src = _ConcreteSource()
-    mock_session = MagicMock()
-    mock_session.closed = True
-    src._session = mock_session
-    await src.close()
-    mock_session.close.assert_not_called()
+    await src.close()  # no exception, no session touched
+    await src.close()  # idempotent
 
 
 # ---------------------------------------------------------------------------

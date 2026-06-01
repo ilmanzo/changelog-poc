@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import structlog
 from defusedxml import ElementTree as DefusedET
 
-from .http_utils import make_client_session
+from .http_utils import get_shared_session
 from .models import NewsItem
 from .sanitize import scrub_external
 
@@ -36,7 +36,8 @@ async def fetch_bodhi(limit: int = 20) -> list[NewsItem]:
     items: list[NewsItem] = []
     url = f"{BODHI_URL}/?rows_per_page={limit}&status=testing"
     try:
-        async with make_client_session() as session, session.get(url) as resp:
+        session = get_shared_session()
+        async with session.get(url) as resp:
             if resp.status != 200:
                 _logger.warning("bodhi_http", status=resp.status)
                 return items
@@ -80,7 +81,8 @@ def _child_text(item: object, tag: str) -> str | None:
 async def fetch_opensuse_news(limit: int = 20) -> list[NewsItem]:
     items: list[NewsItem] = []
     try:
-        async with make_client_session() as session, session.get(OPENSUSE_NEWS_URL) as resp:
+        session = get_shared_session()
+        async with session.get(OPENSUSE_NEWS_URL) as resp:
             if resp.status != 200:
                 _logger.warning("opensuse_news_http", status=resp.status)
                 return items

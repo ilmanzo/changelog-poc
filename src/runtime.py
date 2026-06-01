@@ -15,6 +15,7 @@ import structlog
 from .config import settings
 from .db import Database
 from .git_manager import GitManager
+from .http_utils import close_shared_session
 from .ingest import IngestService
 from .rpm_manager import RPMManager
 from .sources import (
@@ -52,5 +53,6 @@ async def lifespan(_server: object) -> AsyncIterator[None]:
         # is left with a "queued" promise that never lands.
         await ingest_service.drain_pending(timeout_s=30.0)
         await source_registry.close()
+        await close_shared_session()
         await db.close()
         _logger.info("server_stopped")

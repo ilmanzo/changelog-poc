@@ -1,4 +1,4 @@
-"""Unit tests for src/news_fetcher.py — mock aiohttp via make_client_session."""
+"""Unit tests for src/news_fetcher.py — mock aiohttp via get_shared_session."""
 
 from __future__ import annotations
 
@@ -31,18 +31,14 @@ def _resp_ctx(status: int = 200, text: str = "", json_body: Any = None) -> Magic
     return ctx
 
 
-def _session_ctx(get_return: MagicMock | None = None, get_side_effect: Exception | None = None) -> MagicMock:
-    """Mock the `async with make_client_session() as session` context."""
+def _session(get_return: MagicMock | None = None, get_side_effect: Exception | None = None) -> MagicMock:
+    """Mock the shared aiohttp session — ``session.get(url)`` returns *get_return*."""
     session = MagicMock()
     if get_side_effect is not None:
         session.get = MagicMock(side_effect=get_side_effect)
     else:
         session.get = MagicMock(return_value=get_return)
-
-    ctx = MagicMock()
-    ctx.__aenter__ = AsyncMock(return_value=session)
-    ctx.__aexit__ = AsyncMock(return_value=False)
-    return ctx
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -79,8 +75,8 @@ async def test_fetch_bodhi_returns_news_items() -> None:
             {"title": "curl-8.0", "type": "security", "critpath": False, "notes": "CVE fix", "url": None},
         ]
     }
-    ctx = _session_ctx(get_return=_resp_ctx(200, json_body=body))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+    ctx = _session(get_return=_resp_ctx(200, json_body=body))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_bodhi(limit=5)
     assert len(result) == 2
     assert result[0].source == "bodhi"
@@ -89,8 +85,8 @@ async def test_fetch_bodhi_returns_news_items() -> None:
 
 
 async def test_fetch_bodhi_skips_empty_title() -> None:
-    ctx = _session_ctx(get_return=_resp_ctx(200, json_body={"updates": [{"title": "", "type": "bugfix"}]}))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+    ctx = _session(get_return=_resp_ctx(200, json_body={"updates": [{"title": "", "type": "bugfix"}]}))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_bodhi()
     assert result == []
 
@@ -102,10 +98,10 @@ async def test_fetch_bodhi_skips_empty_title() -> None:
 )
 async def test_fetch_bodhi_error_returns_empty(case: str) -> None:
     if case == "http_503":
-        ctx = _session_ctx(get_return=_resp_ctx(503))
+        ctx = _session(get_return=_resp_ctx(503))
     else:
-        ctx = _session_ctx(get_side_effect=aiohttp.ClientConnectionError("refused"))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+        ctx = _session(get_side_effect=aiohttp.ClientConnectionError("refused"))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_bodhi()
     assert result == []
 
@@ -131,16 +127,16 @@ _RSS = """\
 
 
 async def test_fetch_opensuse_news_returns_items() -> None:
-    ctx = _session_ctx(get_return=_resp_ctx(200, text=_RSS))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+    ctx = _session(get_return=_resp_ctx(200, text=_RSS))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_opensuse_news(limit=10)
     assert len(result) == 2
     assert result[0].source == "opensuse-rss"
 
 
 async def test_fetch_opensuse_news_tumbleweed_critical() -> None:
-    ctx = _session_ctx(get_return=_resp_ctx(200, text=_RSS))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+    ctx = _session(get_return=_resp_ctx(200, text=_RSS))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_opensuse_news()
     tumbleweed = next(r for r in result if "Tumbleweed" in r.title)
     assert tumbleweed.importance == "CRITICAL"
@@ -154,10 +150,10 @@ async def test_fetch_opensuse_news_tumbleweed_critical() -> None:
 )
 async def test_fetch_opensuse_news_error_returns_empty(case: str) -> None:
     if case == "http_404":
-        ctx = _session_ctx(get_return=_resp_ctx(404))
+        ctx = _session(get_return=_resp_ctx(404))
     else:
-        ctx = _session_ctx(get_side_effect=aiohttp.ClientConnectionError("refused"))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+        ctx = _session(get_side_effect=aiohttp.ClientConnectionError("refused"))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_opensuse_news()
     assert result == []
 
@@ -176,8 +172,8 @@ _XXE_RSS = """<?xml version="1.0"?>
 
 async def test_fetch_opensuse_news_rejects_xxe() -> None:
     """defusedxml must refuse to resolve external entities; result is empty."""
-    ctx = _session_ctx(get_return=_resp_ctx(200, text=_XXE_RSS))
-    with patch("src.news_fetcher.make_client_session", return_value=ctx):
+    ctx = _session(get_return=_resp_ctx(200, text=_XXE_RSS))
+    with patch("src.news_fetcher.get_shared_session", return_value=ctx):
         result = await fetch_opensuse_news()
     assert result == []
 

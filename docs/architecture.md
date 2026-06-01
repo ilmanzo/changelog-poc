@@ -170,8 +170,8 @@ else uses the documented defaults.
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp` | asyncpg DSN |
-| `PG_POOL_MIN_SIZE` | `2` | asyncpg pool min connections |
-| `PG_POOL_MAX_SIZE` | `20` | asyncpg pool max connections |
+| `PG_POOL_MIN_SIZE` | `10` | asyncpg pool min connections. Sized for ~100 concurrent stdio clients (each holds one conn for the duration of a query). Must stay below Postgres `max_connections` (default 100). |
+| `PG_POOL_MAX_SIZE` | `80` | asyncpg pool max connections. Leaves headroom under Postgres `max_connections=100` for the worker daemon + admin sessions. |
 
 ### Cache / TTL
 

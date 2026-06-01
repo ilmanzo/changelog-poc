@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+import aiohttp
 import structlog
 from mcp.server.fastmcp import FastMCP
 
 from ..config import settings
 from ..ingest import validate_package_name
 from ..runtime import db
+from ..testcatalog_client import TestCatalogClient
 from ._helpers import _format_date
 from ._wrap import _mark_stale, _tlog, _tool_wrapper
 
@@ -43,36 +46,43 @@ async def get_news(package: str | None = None, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-async def _refresh_testcatalog(package: str, pkg_id: int | None) -> None:
-    """Query live TestCatalog API, write results to DB, touch manifest.
+async def _refresh_via_testcatalog(
+    package: str,
+    pkg_id: int | None,
+    kind: str,
+    fetch: Callable[[TestCatalogClient], Awaitable[list[Any]]],
+    upsert: Callable[[list[Any]], Awaitable[Any]],
+) -> None:
+    """Live TestCatalog call -> DB upsert + manifest touch, with stale fallback.
 
-    When the live query fails and stale cached rows exist, sets the stale
-    banner via ``_mark_stale`` so the tool wrapper prepends a WARNING.
+    On live failure, when cached rows exist, sets the stale banner via
+    ``_mark_stale`` so the wrapper prepends a WARNING. The fetch + upsert
+    callables specialise the helper for each ``kind`` of TestCatalog data
+    (openqa tests, bugs, ...). Caught exception is narrow: aiohttp + asyncio
+    timeout cover all transport/protocol failures the client can raise;
+    programming errors still propagate.
     """
-    from ..testcatalog_client import TestCatalogClient
-
     client = TestCatalogClient()
-    live_tests = []
+    live: list[Any] = []
     api_ok = False
     try:
-        live_tests = await client.get_tests_for_package(package)
+        live = await fetch(client)
         api_ok = True
-    except Exception as exc:
-        _logger.exception("testcatalog_live_failed", package=package)
-        _tlog(testcatalog_live_failed=str(exc))
+    except (aiohttp.ClientError, TimeoutError) as exc:
+        _logger.exception(f"{kind}_live_failed", package=package)
+        _tlog(**{f"{kind}_live_failed": str(exc)})
     finally:
         await client.close()
 
     if api_ok:
-        if live_tests:
-            await db.upsert_openqa(live_tests, source="testcatalog")
-        # always touch manifest so we don't hammer the API on empty results
+        if live:
+            await upsert(live)
+        # touch manifest even on empty results so we don't hammer the API
         new_id = pkg_id or await db.get_package_id(package)
         if new_id:
-            await db.touch_manifest(new_id, kind="testcatalog")
+            await db.touch_manifest(new_id, kind=kind)
     elif pkg_id is not None:
-        # live query failed -- check if stale cache exists to show banner
-        synced_at: datetime | None = await db.get_synced_at(pkg_id, kind="testcatalog")
+        synced_at: datetime | None = await db.get_synced_at(pkg_id, kind=kind)
         if synced_at is not None:
             _mark_stale(synced_at)
 
@@ -102,7 +112,13 @@ async def get_test_coverage(package: str, source: str | None = None) -> str:
             pkg_id, settings.cache_ttl_changelog_s, kind="testcatalog"
         )
         if not is_fresh:
-            await _refresh_testcatalog(package, pkg_id)
+            await _refresh_via_testcatalog(
+                package,
+                pkg_id,
+                kind="testcatalog",
+                fetch=lambda c: c.get_tests_for_package(package),
+                upsert=lambda rows: db.upsert_openqa(rows, source="testcatalog"),
+            )
         rows_testcatalog = await db.get_openqa_tests(package, source="testcatalog")
     else:
         rows_testcatalog = []
@@ -155,7 +171,7 @@ async def get_sync_status(
     return "\n".join(lines)
 
 
-def _fmt_age(seconds: Any) -> str:
+def _fmt_age(seconds: int | float | str) -> str:
     s = int(seconds)
     if s < 3600:
         return f"{s // 60}m ago"
@@ -169,7 +185,7 @@ def _append_status_block(
     label: str,
     bound: str,
     marker: str,
-    rows: list[Any],
+    rows: Sequence[Mapping[str, Any]],
 ) -> None:
     if not rows:
         return
@@ -206,38 +222,6 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
     return "\n".join(lines)
 
 
-async def _refresh_testcatalog_bugs(package: str, pkg_id: int | None, limit: int) -> None:
-    """Query live TestCatalog bugs analytics, write results to DB, touch manifest.
-
-    On live failure with cached rows present, sets the stale banner so the
-    wrapper prepends a WARNING.
-    """
-    from ..testcatalog_client import TestCatalogClient
-
-    client = TestCatalogClient()
-    live_bugs: list = []
-    api_ok = False
-    try:
-        live_bugs = await client.get_bugs_for_package(package, limit=limit)
-        api_ok = True
-    except Exception as exc:
-        _logger.exception("testcatalog_bugs_live_failed", package=package)
-        _tlog(testcatalog_bugs_live_failed=str(exc))
-    finally:
-        await client.close()
-
-    if api_ok:
-        if live_bugs:
-            await db.upsert_testcatalog_bugs(live_bugs)
-        new_id = pkg_id or await db.get_package_id(package)
-        if new_id:
-            await db.touch_manifest(new_id, kind="testcatalog_bugs")
-    elif pkg_id is not None:
-        synced_at: datetime | None = await db.get_synced_at(pkg_id, kind="testcatalog_bugs")
-        if synced_at is not None:
-            _mark_stale(synced_at)
-
-
 @_tool_wrapper("find_bugs_in_tests", untrusted_sources=("testcatalog",), category="search")
 async def find_bugs_in_tests(package: str, limit: int = 10) -> str:
     """Bugzilla bugs filed for *package* from the SUSE TestCatalog analytics API.
@@ -253,7 +237,13 @@ async def find_bugs_in_tests(package: str, limit: int = 10) -> str:
         pkg_id, settings.cache_ttl_changelog_s, kind="testcatalog_bugs"
     )
     if not is_fresh:
-        await _refresh_testcatalog_bugs(package, pkg_id, limit)
+        await _refresh_via_testcatalog(
+            package,
+            pkg_id,
+            kind="testcatalog_bugs",
+            fetch=lambda c: c.get_bugs_for_package(package, limit=limit),
+            upsert=db.upsert_testcatalog_bugs,
+        )
 
     rows = await db.get_testcatalog_bugs(package)
     _tlog(bugs=len(rows))

@@ -12,6 +12,7 @@ from typing import Any
 
 import structlog
 
+from .http_utils import close_shared_session
 from .runtime import db, ingest_service, source_registry
 from .tools import ALL_CLI_TOOLS
 from .tools._wrap import suppress_untrusted_envelope
@@ -96,6 +97,7 @@ async def _run_tool(fn: Callable[..., Awaitable[str]], kwargs: dict[str, Any]) -
         # promise honest. Bounded so a hung upstream doesn't block exit.
         await ingest_service.drain_pending(timeout_s=30.0)
         await source_registry.close()
+        await close_shared_session()
         if db_connected:
             await db.close()
 

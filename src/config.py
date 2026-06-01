@@ -11,8 +11,8 @@ class Settings(BaseSettings):
 
     # PostgreSQL
     database_url: str = "postgresql://rpm_mcp:rpm_mcp@127.0.0.1:5432/rpm_mcp"
-    pg_pool_min_size: int = 2
-    pg_pool_max_size: int = 20
+    pg_pool_min_size: int = 10
+    pg_pool_max_size: int = 80
 
     # Cache / eviction (DD12 — per-kind TTLs)
     cache_ttl_news_s: int = 86400  # 24h: RSS/Bodhi feeds polled daily

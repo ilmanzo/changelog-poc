@@ -12,7 +12,7 @@ from packaging import version as pkg_version
 from .. import embedder
 from ..ingest import IngestStatus, validate_package_name
 from ..models import ChangelogEntry
-from ..runtime import db, git_mgr, ingest_service
+from ..runtime import db, git_mgr, ingest_service, rpm_mgr
 from ..version_utils import clean_version, content_matches, parse_when
 from ._helpers import (
     BSC_CONTENT_RE,
@@ -302,6 +302,83 @@ async def sync_package(package: str, distro: str = "opensuse") -> str:
     return f"Sync failed for {package} [{distro}]: {result.error}"
 
 
+@_tool_wrapper("sync_core_packages")
+async def sync_core_packages(
+    n: int = 200,
+    force: bool = False,
+    threshold_days: int = 7,
+    seed_pattern: str = "base",
+) -> str:
+    """Bulk-sync the *n* most important core packages (ranked by reverse-dependency count).
+
+    Skips packages whose data is fresher than *threshold_days* unless *force* is set.
+    """
+    n = max(1, min(n, 200))
+
+    seed_pkgs = await rpm_mgr.find_pattern_packages(seed_pattern)
+    if not seed_pkgs:
+        return (
+            f"Pattern '{seed_pattern}' not found in the local RPM database. "
+            "Try 'base' or 'enhanced_base'."
+        )
+
+    candidates: set[str] = set(seed_pkgs)
+    dep_results = await asyncio.gather(
+        *(rpm_mgr.get_dependencies(p) for p in seed_pkgs),
+        return_exceptions=True,
+    )
+    for res in dep_results:
+        if isinstance(res, frozenset):
+            candidates.update(res)
+    candidates = {p for p in candidates if not p.startswith("patterns-")}
+
+    rdep_counts: dict[str, int] = {}
+    rdep_results = await asyncio.gather(
+        *(rpm_mgr.get_reverse_dependencies(p) for p in candidates),
+        return_exceptions=True,
+    )
+    for pkg, res in zip(candidates, rdep_results, strict=True):
+        rdep_counts[pkg] = len(res) if isinstance(res, frozenset) else 0
+
+    ranked = sorted(rdep_counts, key=lambda p: rdep_counts[p], reverse=True)[:n]
+
+    if not force:
+        threshold_s = threshold_days * 86400
+        ages = await db.get_sync_ages(ranked)
+        fresh = {r["name"] for r in ages if int(r["age_seconds"]) < threshold_s}
+        to_sync = [p for p in ranked if p not in fresh]
+    else:
+        to_sync = ranked
+
+    if not to_sync:
+        return f"All {len(ranked)} core packages are fresh (threshold: {threshold_days}d). Use --force to re-sync."
+
+    _tlog(total=len(ranked), to_sync=len(to_sync), force=force)
+
+    sem = asyncio.Semaphore(4)
+
+    async def _sync_one(pkg: str) -> tuple[str, str]:
+        async with sem:
+            r = await ingest_service.ingest(pkg, "opensuse")
+            if r.status is IngestStatus.INDEXED:
+                return pkg, f"ok ({r.entries} entries)"
+            if r.status is IngestStatus.EMPTY:
+                return pkg, "empty"
+            return pkg, f"failed: {r.error}"
+
+    results = await asyncio.gather(*(_sync_one(p) for p in to_sync))
+    ok = sum(1 for _, s in results if s.startswith("ok"))
+    failed = [(p, s) for p, s in results if s.startswith("failed")]
+
+    lines = [
+        f"Core sync: {ok}/{len(to_sync)} indexed"
+        + (f", {len(ranked) - len(to_sync)} skipped (fresh)" if not force else "")
+    ]
+    for pkg, status in failed:
+        lines.append(f"  FAIL {pkg}: {status}")
+    return "\n".join(lines)
+
+
 @_tool_wrapper("sync_all_distros")
 async def sync_all_distros(package: str) -> str:
     """Ingest *package* from every known distro (openSUSE, Fedora, Ubuntu) in parallel."""
@@ -392,6 +469,7 @@ CLI_TOOLS = (
     compare_versions,
     sync_package,
     sync_all_distros,
+    sync_core_packages,
 )
 
 

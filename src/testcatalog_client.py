@@ -22,7 +22,7 @@ import aiohttp
 import structlog
 
 from .config import settings
-from .http_utils import refresh_session
+from .http_utils import get_shared_session
 from .models import BugReference, OpenQATest
 from .openqa_fetcher import _PKG_RE, _SUMMARY_RE
 from .sanitize import scrub_external
@@ -54,18 +54,16 @@ class TestCatalogClient:
                 "testcatalog_api_key requires https:// testcatalog_url to avoid "
                 f"Bearer token leakage; got scheme in {self._base!r}"
             )
-        self._session: aiohttp.ClientSession | None = None
+        self._auth_headers: dict[str, str] | None = (
+            {"Authorization": f"Bearer {self._key}"} if self._key else None
+        )
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        headers: dict[str, str] = {}
-        if self._key:
-            headers["Authorization"] = f"Bearer {self._key}"
-        self._session = await refresh_session(self._session, headers=headers)
-        return self._session
+        return get_shared_session()
 
     async def close(self) -> None:
-        if self._session is not None and not self._session.closed:
-            await self._session.close()
+        """No-op: the shared aiohttp session is owned by ``http_utils``."""
+        return None
 
     async def get_tests_for_package(self, package: str) -> list[OpenQATest]:
         """Return OpenQATest records from TestCatalog that map to *package*.
@@ -81,7 +79,7 @@ class TestCatalogClient:
         for _ in range(_MAX_PAGES):
             url = f"{self._base}/api/v1/tests"
             params = {"q": package, "limit": str(_PAGE_SIZE), "skip": str(skip)}
-            async with session.get(url, params=params) as resp:
+            async with session.get(url, params=params, headers=self._auth_headers) as resp:
                 if resp.status == 404:
                     break
                 resp.raise_for_status()
@@ -143,7 +141,7 @@ class TestCatalogClient:
         session = await self._get_session()
         url = f"{self._base}/api/v1/analytics/search"
         params = {"q": package, "scope": "bugs", "size": str(max(1, min(limit, 100)))}
-        async with session.get(url, params=params) as resp:
+        async with session.get(url, params=params, headers=self._auth_headers) as resp:
             if resp.status == 404:
                 return []
             resp.raise_for_status()

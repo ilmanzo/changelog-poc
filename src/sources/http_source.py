@@ -14,7 +14,7 @@ from tenacity import (
 )
 
 from ..config import settings
-from ..http_utils import refresh_session
+from ..http_utils import get_shared_session
 from .base import ChangelogSource, SourceError, SourceNotFound
 
 
@@ -24,6 +24,10 @@ class HttpClient:
     Both ``HttpSource`` (changelog ABC) and the spec-source classes mix this
     in so they share session lifecycle, retry policy, and error taxonomy
     without one inheriting the other's abstract ``fetch`` contract.
+
+    All instances share the process-wide aiohttp session from
+    ``http_utils.get_shared_session``; per-instance auth / forge headers are
+    merged into each request, not baked into the session.
     """
 
     # Subclasses can map specific 4xx statuses to custom error messages
@@ -32,20 +36,21 @@ class HttpClient:
 
     def __init__(
         self,
-        session: aiohttp.ClientSession | None = None,
         *,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
-        self._session = session
         self._extra_headers = extra_headers or None
 
     async def close(self) -> None:
-        if self._session and not self._session.closed:
-            await self._session.close()
+        """No-op: the shared session is owned by ``http_utils``.
+
+        Kept so ``SourceRegistry.close()`` can fan out uniformly without
+        special-casing legacy per-instance sessions.
+        """
+        return None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        self._session = await refresh_session(self._session, headers=self._extra_headers)
-        return self._session
+        return get_shared_session()
 
     async def _fetch_text(self, url: str) -> str:
         """GET *url* with retries. SourceNotFound on 404, SourceError on 4xx/5xx."""
@@ -57,7 +62,7 @@ class HttpClient:
         ):
             with attempt:
                 session = await self._get_session()
-                async with session.get(url) as resp:
+                async with session.get(url, headers=self._extra_headers) as resp:
                     if resp.status == 404:
                         raise SourceNotFound(url)
                     if 400 <= resp.status < 500:
