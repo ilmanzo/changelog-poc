@@ -6,30 +6,18 @@ footer: andrea.manzini@suse.com
 backgroundImage: linear-gradient(to bottom right, #ffffff, #B0C0B0)
 ---
 
-# LLMs Are Half-Blind
+# LLMs Are Context-Limited
 ## Giving AI the Context It Needs with the Model Context Protocol
-
----
 
 # Andrea Manzini
 
-## SUSE Labs, June 2026
-
----
-
-# Who Am I 👨‍💻
-
-- **Role:** Software Engineer @ SUSE
-- Linux user and packager for 30+ years
-- openSUSE contributor, maintainer
-- Building tools to make LLMs useful on real package data
-- **Contacts:** [ilmanzo.github.io](https://ilmanzo.github.io)
+## SUSE QE-Workshop, June 2026
 
 ---
 
 # Today's Agenda 🗺️
 
-1. **The Problem** : half-blind LLMs and the paste-the-logs era
+1. **The Problem** : context-limited LLMs and the paste-the-logs era
 2. **What is MCP?** : protocol, primitives, transport
 3. **Building rpm-mcp** : a concrete server, end to end
 4. **How Vector Search Works** : embeddings without the math
@@ -106,7 +94,7 @@ That's MCP.
 
 # What Is MCP? 🔌
 
-**Model Context Protocol**, standardized by Anthropic in November 2024.
+[**Model Context Protocol**](https://modelcontextprotocol.io/specification), standardized by Anthropic in November 2024.
 
 > "A standard protocol for giving LLMs access to tools and data."
 
@@ -126,7 +114,7 @@ table { font-size: 0.85em; }
 
 | | Before MCP | After MCP |
 |---|---|---|
-| **Protocol** | Proprietary per vendor | JSON-RPC 2.0, open spec |
+| **Protocol** | Proprietary per vendor | JSON-RPC 2.0, [open spec](https://modelcontextprotocol.io/specification) |
 | **Portability** | Plugin works on one LLM | Works on any MCP client |
 | **Server** | Vendor SDK required | Any language, any framework |
 | **Data access** | Context paste or RAG hack | Native tool calls |
@@ -157,6 +145,8 @@ Claude, Gemini CLI, VS Code Copilot, LibreChat: all speak MCP.
          ▼            ▼
      Database       APIs
 ```
+
+<!-- footer: "" -->
 
 ---
 
@@ -231,6 +221,7 @@ Three-step handshake over JSON-RPC, once per session:
 
 **2. `tools/list`** : client asks for the catalog. Server replies:
 
+
 ```json
 {
   "tools": [
@@ -246,6 +237,7 @@ Three-step handshake over JSON-RPC, once per session:
   ]
 }
 ```
+---
 
 **3. Client injects the catalog into the LLM's system context.**
 The **description** (your docstring) tells the LLM *when* to call.
@@ -301,6 +293,8 @@ table { font-size: 0.85em; }
 | `git` | Local repo introspection |
 | `memory` | Persistent knowledge graph |
 
+---
+
 Plus hundreds of community servers in the [MCP registry](https://github.com/modelcontextprotocol/registry).
 
 **Write your own only when nothing fits.** rpm-mcp exists because no one had built a Linux-package server.
@@ -314,7 +308,7 @@ Plus hundreds of community servers in the [MCP registry](https://github.com/mode
 **Experiment:** How hard is it to build an MCP server that gives it access?
 
 We had two existing side projects:
-- `changelog-poc`: openSUSE changelog ingestion + semantic search
+- `changelog-poc`: openSUSE changelog ingestion / release notes with semantic search
 - `rpm-spec-assistant`: Fedora/openSUSE spec parsing and analysis
 
 **Decision:** merge them into one unified MCP server backed by PostgreSQL.
@@ -388,6 +382,7 @@ Fedora         ── koji / pkgdb
     ▼
 Ubuntu         ── launchpad
 ```
+---
 
 The registry filters by distro first, so an openSUSE package only hits openSUSE sources; a Ubuntu package only hits Ubuntu.
 
@@ -397,8 +392,7 @@ network sources concurrently; pick the one with the most entries.
 Source failures are logged and skipped; stale cached data is served with a warning banner.
 
 ---
-
-# Ingestion Pipeline ⚙️
+### Ingestion Pipeline ⚙️
 
 ```
 Package name
@@ -439,6 +433,18 @@ table { font-size: 0.8em; }
 | **Total** | **22** | |
 
 The LLM decides which tool to call based on the docstring. It reads them all at session start.
+
+---
+# How are we going to find the stuff? 🤔
+
+MCP solves **tool calling**. It does not solve **semantic matching** inside your data.
+
+For `semantic_search`, we need to retrieve entries that mean the same thing, not just share keywords.
+
+- Query: "openssl memory corruption fix"
+- Relevant changelog: "CVE-2023-5363: heap buffer overflow in libssl"
+
+Different words, same issue. Keyword search can miss this; embeddings make it retrievable.
 
 ---
 
@@ -548,8 +554,7 @@ PostgreSQL + pgvector + pg_trgm
 One `DATABASE_URL`. One backup. One monitoring target. One `psql` to debug everything.
 
 ---
-
-# pgvector: The Numbers 📊
+### pgvector: The Numbers 📊
 
 HNSW index (Hierarchical Navigable Small World graph):
 
@@ -574,8 +579,7 @@ table { font-size: 0.9em; }
 Ingest is slow because it fetches from OBS/Gitea over the network. The DB itself is fast.
 
 ---
-
-# Content-Addressed Dedup 🔒
+# Content-Addressed Dedup 🔑
 
 Same `.changes` block appears in OBS **and** the Gitea mirror -> same UUID -> no duplicate.
 
@@ -585,6 +589,9 @@ PKG_NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
 def content_uuid(package: str, content: str) -> uuid.UUID:
     return uuid.uuid5(PKG_NAMESPACE, f"{package}::{content}")
 ```
+
+---
+# Content-Addressed Dedup 🔑
 
 ```sql
 INSERT INTO changelog_entries (id, package_id, content, embedding, ...)
@@ -597,37 +604,6 @@ ON CONFLICT (id) DO NOTHING;
 - Idempotent: re-ingest never creates duplicates
 - No scanning: no `SELECT ... WHERE content = ?` before each insert
 - Source-agnostic: OBS, Gitea, local RPM converge on the same row
-
----
-
-# FastMCP vs Raw MCP SDK ⚡
-
-**Raw SDK**: you write the protocol layer:
-
-```python
-@server.list_tools()
-async def list_tools() -> list[Tool]:
-    return [Tool(name="find_cve", description="Search for a CVE...",
-                 inputSchema={"type": "object",
-                              "properties": {"cve_id": {"type": "string"},
-                                             "package": {"type": "string"}},
-                              "required": ["cve_id"]})]
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "find_cve":
-        ...  # dispatch, validate, format, return
-```
-
-**FastMCP**: type hints do the work:
-
-```python
-@mcp.tool()
-async def find_cve(cve_id: str, package: str | None = None) -> str:
-    """Case-insensitive search for a CVE ID across cached changelogs."""
-    ...
-```
-
-FastMCP reads the signature -> generates JSON Schema. Reads the docstring -> tool description.
 
 ---
 
@@ -645,6 +621,10 @@ User C: uv run mcp_server.py  <-┘
 - Natural isolation: each user is a separate process
 - Postgres handles concurrency; asyncpg pool per process
 
+---
+# Production Reality 🏭
+
+
 **Source failure handling:**
 
 ```
@@ -655,13 +635,16 @@ Stale data is better than no data. The LLM sees the banner and reports it.
 No Prometheus, no Containerfile: deliberately out of scope for this deployment model.
 
 ---
-
 # Security & Trust 🔒
 
 The questions a SUSE audience always asks. Honest answers:
 
 - **Tool selection is LLM-driven.** Don't expose `rm -rf` and trust the docstring to keep the LLM polite. If a tool is destructive, gate it behind explicit user confirmation in the client.
 - **Stdio = same trust as the calling user.** No privilege escalation; the server runs as you.
+
+---
+# Security & Trust 🔒
+
 - **Untrusted source data is sanitized at ingest.** `safe_upstream_url()` in `src/ingest.py:36` rejects `file://`, `http://internal/...`, etc. before we ever fetch.
 - **No write tools in rpm-mcp.** Every tool is read-only over the cache. Worst case: the LLM gets stale data.
 - **Prompt injection in changelog content?** Possible in theory : a hostile `.changes` entry could try to instruct the LLM. Mitigation: tool output is data, not instructions, and the client's system prompt says so.
@@ -762,7 +745,6 @@ PYTHONPATH=. uv run pytest -m e2e
 - Don't mock the database: mocks diverged from reality in production
 
 ---
-
 # Common Pitfalls When Writing Tools 🪤
 
 Learned the hard way:
@@ -770,13 +752,17 @@ Learned the hard way:
 - **Returning 50 KB of text.** The LLM pays per token. Paginate, truncate, or summarize *at the tool level* : don't make the LLM do it.
 - **Vague tool names.** `get_data(id)` will be picked at random. Use specifics: `get_package_changelog(name)`.
 - **No type hints.** No schema -> LLM passes garbage -> tool crashes. Always type your parameters.
+
+---
+# Common Pitfalls When Writing Tools 🪤
+
+
 - **Returning JSON-as-string.** The LLM has to re-parse it. Return plain text formatted for human reading; the LLM handles that natively.
 - **Silent failures.** If a tool returns `""` on error, the LLM thinks it succeeded. Return `"ERROR: ..."` text.
 - **Side effects in read tools.** Don't update state in a `get_*` tool : the LLM will call it multiple times.
 - **Docstrings as afterthought.** The docstring IS the tool's contract with the LLM. Write it like an API description.
 
 ---
-
 # What MCP Unlocks 🔓
 
 **Before:**
@@ -788,7 +774,8 @@ Learned the hard way:
 - Any compatible client (Claude, gemini-cli, VS Code, LibreChat)
 - You own the data access layer; the LLM owns the reasoning
 
-**How to start:**
+---
+# **How to start:**
 1. `pip install "mcp[cli]"` (the official Anthropic SDK; ships `mcp.server.fastmcp`)
 2. Write one tool that returns something useful
 3. Add it to your MCP client config (see earlier slide)
@@ -800,8 +787,8 @@ The protocol is stable. The tooling is production-ready.
 
 # Links and Q&A 🎤
 
-**This project:**
-- [github.com/ilmanzo/rpm-mcp](https://github.com/ilmanzo/rpm-mcp) <- actual repo link TBD
+
+- [**This project:**](https://github.com/ilmanzo/changelog-poc) 
 
 **Specs:**
 - [spec.modelcontextprotocol.io](https://spec.modelcontextprotocol.io): full protocol spec
@@ -813,8 +800,16 @@ The protocol is stable. The tooling is production-ready.
 **pgvector:**
 - [github.com/pgvector/pgvector](https://github.com/pgvector/pgvector)
 
+
+VISUAL doc : https://ynarwal.github.io/how-llms-work/ 
+
 ---
+# **Grazie / Thank you!**
 
-**Grazie / Thank you!**
 
-[ilmanzo.github.io](https://ilmanzo.github.io) | andrea.manzini@suse.com
+# LLMs Are Context-Limited
+## Giving AI the Context It Needs with the Model Context Protocol
+
+# Andrea Manzini
+
+## SUSE QE-Workshop, June 2026
