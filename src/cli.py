@@ -30,18 +30,24 @@ def _resolve_param_type(annotation: str) -> tuple[_ParamType, bool]:
     return _TYPE_MAP.get(s, str), is_optional
 
 
+def _flag_names(pname: str) -> list[str]:
+    """Long flag, plus short `-x` alias for single-letter params (POSIX convention)."""
+    long_flag = f"--{pname.replace('_', '-')}"
+    return [f"-{pname}", long_flag] if len(pname) == 1 else [long_flag]
+
+
 def _add_tool_subparser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     fn: Callable[..., Awaitable[str]],
 ) -> None:
     cmd = fn.__name__.replace("_", "-")
     doc_line = (fn.__doc__ or "").strip().splitlines()[0].replace("%", "%%") if fn.__doc__ else ""
-    sub = subparsers.add_parser(cmd, help=doc_line)
+    sub = subparsers.add_parser(cmd, help=doc_line, description=doc_line or None)
 
     for pname, param in inspect.signature(fn).parameters.items():
         py_type, is_optional = _resolve_param_type(str(param.annotation))
         has_default = param.default is not inspect.Parameter.empty
-        flag = f"--{pname.replace('_', '-')}"
+        flags = _flag_names(pname)
 
         if py_type is bool:
             default_bool = bool(param.default) if has_default else False
@@ -53,12 +59,12 @@ def _add_tool_subparser(
                     default=True,
                 )
             else:
-                sub.add_argument(flag, action="store_true", default=False)
+                sub.add_argument(*flags, action="store_true", default=False)
         elif has_default or is_optional:
             kw: dict[str, Any] = {"default": param.default if has_default else None}
             if py_type in (str, int, float):
                 kw["type"] = py_type
-            sub.add_argument(flag, **kw)
+            sub.add_argument(*flags, **kw)
         else:
             kw = {}
             if py_type in (str, int, float):
@@ -68,7 +74,7 @@ def _add_tool_subparser(
 
 def build_parser() -> tuple[argparse.ArgumentParser, dict[str, Callable[..., Awaitable[str]]]]:
     parser = argparse.ArgumentParser(
-        prog=Path(sys.argv[0]).name,
+        prog="rpm-mcp",
         description="rpm-mcp -- invoke a tool directly (CLI) or run as MCP server (default).",
     )
     subparsers = parser.add_subparsers(dest="tool", metavar="TOOL")

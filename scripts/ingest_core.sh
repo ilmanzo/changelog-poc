@@ -15,8 +15,23 @@ set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")/.."
 
+usage() {
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+esac
+
 N="${1:-100}"
 shift || true
+
+if ! [[ "$N" =~ ^[0-9]+$ ]]; then
+    echo "error: N must be a positive integer (got: $N)" >&2
+    usage >&2
+    exit 2
+fi
+
 THRESHOLD_DAYS="${THRESHOLD_DAYS:-7}"
 PARALLEL="${PARALLEL:-2}"
 

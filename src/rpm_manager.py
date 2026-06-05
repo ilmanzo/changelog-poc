@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime
 
@@ -88,7 +89,12 @@ class RPMManager:
         return [line for line in stdout.splitlines() if line.strip()]
 
     async def find_pattern_packages(self, pattern_name: str) -> list[str]:
-        """Resolve an openSUSE pattern name to its member package names."""
+        """Resolve an openSUSE pattern name to its member package names.
+
+        Tries the local RPM DB first (installed patterns); falls back to
+        ``zypper info -t pattern`` so uninstalled patterns can still be
+        resolved without polluting the system.
+        """
         stdout, _, rc = await self._exec(
             "-q", "--whatprovides", f"pattern():{pattern_name}", "--qf", "%{NAME}\n"
         )
@@ -106,10 +112,46 @@ class RPMManager:
                     pattern_pkg = stdout.strip().splitlines()[0]
                     break
 
-        if not pattern_pkg:
+        if pattern_pkg:
+            return sorted(await self.get_dependencies(pattern_pkg))
+
+        return await self._resolve_pattern_via_zypper(pattern_name)
+
+    async def _resolve_pattern_via_zypper(self, pattern_name: str) -> list[str]:
+        """Parse ``zypper info -t pattern <name>`` Contents table for member packages.
+
+        Read-only: never installs. Returns ``[]`` if zypper is missing, the
+        pattern is unknown, or parsing fails.
+        """
+        env = {**os.environ, "LC_ALL": "C"}
+        stdout, _, rc = await run_subprocess(
+            "zypper", "--non-interactive", "--no-refresh",
+            "info", "-t", "pattern", "--", pattern_name,
+            env=env,
+        )
+        if rc != 0 or not stdout:
             return []
 
-        return sorted(await self.get_dependencies(pattern_pkg))
+        packages: set[str] = set()
+        in_contents = False
+        for raw in stdout.splitlines():
+            line = raw.rstrip()
+            stripped = line.strip()
+            if not in_contents:
+                if line.startswith("Contents"):
+                    in_contents = True
+                continue
+            if not stripped or set(stripped) <= {"-", "+"}:
+                continue
+            if "|" not in line:
+                break
+            parts = [c.strip() for c in line.split("|")]
+            if len(parts) < 3 or parts[2].lower() != "package":
+                continue
+            name = parts[1]
+            if name and not name.startswith("pattern:"):
+                packages.add(name)
+        return sorted(packages)
 
     @alru_cache(maxsize=128)
     async def get_reverse_dependencies(self, package_name: str) -> frozenset[str]:

@@ -17,6 +17,7 @@ async def run_subprocess(
     *args: str,
     cwd: Path | str | None = None,
     timeout_s: float | None = None,
+    env: dict[str, str] | None = None,
 ) -> tuple[str, str, int]:
     """Run ``binary args...`` and return ``(stdout, stderr, returncode)``.
 
@@ -31,6 +32,7 @@ async def run_subprocess(
         cwd=str(cwd) if cwd is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     timeout = timeout_s if timeout_s is not None else settings.subprocess_timeout_s
     try:

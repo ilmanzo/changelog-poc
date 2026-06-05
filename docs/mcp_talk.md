@@ -6,8 +6,9 @@ footer: andrea.manzini@suse.com
 backgroundImage: linear-gradient(to bottom right, #ffffff, #B0C0B0)
 ---
 
-# LLMs Are Context-Limited
-## Giving AI the Context It Needs with the Model Context Protocol
+# LLMs are context-limited
+## Giving AI the context it needs 
+## with the Model Context Protocol
 
 # Andrea Manzini
 
@@ -15,7 +16,7 @@ backgroundImage: linear-gradient(to bottom right, #ffffff, #B0C0B0)
 
 ---
 
-# Today's Agenda 🗺️
+# Today's agenda 🗺️
 
 1. **The Problem** : context-limited LLMs and the paste-the-logs era
 2. **What is MCP?** : protocol, primitives, transport
@@ -24,17 +25,17 @@ backgroundImage: linear-gradient(to bottom right, #ffffff, #B0C0B0)
 5. **Production Lessons** : pgvector, dedup, benchmarks
 6. **Q&A**
 
-~60 minutes. Stop me with questions.
+~60 minutes. Please stop me with questions. 
 
 ---
 
-# A Question ❓
+# A simple question ❓
 
 > "Claude, what security fixes landed in **vim** on openSUSE last month?"
 
 ---
 
-# A Question ❓
+# A **simple** answer ❓
 
 > "Claude, what security fixes landed in **vim** on openSUSE last month?"
 
@@ -44,7 +45,7 @@ Claude's answer:
 
 ---
 
-# The Gap 🕳️
+# The gap 🕳️
 
 LLMs know a lot. But they don't know **your stuff**.
 
@@ -58,7 +59,7 @@ That doesn't scale.
 
 ---
 
-# The Old Way 📋
+# The old way 📋
 
 ```
 You: Here is the changelog for vim. [pastes 500 lines]
@@ -69,14 +70,14 @@ Claude: [reads the paste]
 ```
 
 **Problems:**
-- 128k context fills up fast
+- 128k, 256k context fills up fast
 - Manual, not reproducible, not queryable
 - New data? Paste again.
 - No structured search, no date filters, no semantic queries
 
 ---
 
-# What If the LLM Could Just... Ask? 🤖
+# What if the LLM could just... ask? 🤖
 
 ```
 Claude: [calls find_cve("CVE-2023-4738", "vim")]
@@ -92,7 +93,7 @@ That's MCP.
 
 ---
 
-# What Is MCP? 🔌
+# What is MCP? 🔌
 
 [**Model Context Protocol**](https://modelcontextprotocol.io/specification), standardized by Anthropic in November 2024.
 
@@ -106,7 +107,7 @@ An MCP server is just a process that speaks JSON-RPC 2.0. That's it.
 
 ---
 
-# Before and After MCP 🔄
+# Before and after MCP 🔄
 
 <style scoped>
 table { font-size: 0.85em; }
@@ -124,7 +125,7 @@ Claude, Gemini CLI, VS Code Copilot, LibreChat: all speak MCP.
 
 ---
 
-# Architecture: Hosts, Clients, Servers 🏗️
+# Architecture: hosts, clients, servers 🏗️
 
 ```
 ┌─────────────────────────────┐
@@ -150,7 +151,7 @@ Claude, Gemini CLI, VS Code Copilot, LibreChat: all speak MCP.
 
 ---
 
-# Three Primitives 🔑
+# Three primitives 🔑
 
 **Tools**: functions the LLM can call
 - Name, description (natural language), JSON Schema for inputs
@@ -189,8 +190,7 @@ Why stdio?
 You don't write this by hand. FastMCP handles it.
 
 ---
-
-# Hello World 👋
+# Hello world 👋
 
 ```python
 from mcp.server.fastmcp import FastMCP
@@ -207,13 +207,15 @@ mcp.run()  # reads stdin, writes stdout
 
 That's the complete server.
 
+---
+# Hello world 👋
+
 - FastMCP **infers JSON Schema** from type hints (`str`, `int`, `bool`, `Optional`)
 - The **docstring** becomes the tool description; the LLM reads it to decide when to call
 - `mcp.run()` speaks the MCP wire protocol for you
 
 ---
-
-# How Does the Client Discover Tools? 🔭
+### How does the client discover tools? 🔭
 
 Three-step handshake over JSON-RPC, once per session:
 
@@ -249,7 +251,7 @@ You write none of this. `@mcp.tool()` does it for you.
 
 ---
 
-# Connecting Your Server 🔗
+# Connecting your server 🔗
 
 Add to `~/.config/Claude/claude_desktop_config.json` (or the gemini-cli equivalent):
 
@@ -274,7 +276,7 @@ Restart the client. The server's tools appear in the client's tool list, ready t
 
 ---
 
-# You Don't Have to Build From Scratch 🌍
+# You don't have to build from scratch 🌍
 
 [github.com/modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) hosts dozens of official servers:
 
@@ -301,7 +303,7 @@ Plus hundreds of community servers in the [MCP registry](https://github.com/mode
 
 ---
 
-# Our Project: Origin Story 🔧
+# Our project: origin story 🔧
 
 **Pain:** Claude couldn't answer questions about openSUSE package history.
 
@@ -317,7 +319,7 @@ Result: 22 tools, 5 distros, 13k packages: `uv run mcp_server.py`.
 
 ---
 
-# What We Built 🚀
+# What we built 🚀
 
 **rpm-mcp**: package intelligence for Linux distributions
 
@@ -363,7 +365,7 @@ IngestService       MCP Tools (22)
 
 ---
 
-# Sources: The Waterfall Strategy 🌊
+# Sources: the waterfall strategy 🌊
 
 When fetching a package, try sources in order; **first non-empty wins**:
 
@@ -392,7 +394,7 @@ network sources concurrently; pick the one with the most entries.
 Source failures are logged and skipped; stale cached data is served with a warning banner.
 
 ---
-### Ingestion Pipeline ⚙️
+### Ingestion pipeline ⚙️
 
 ```
 Package name
@@ -418,7 +420,7 @@ Re-ingest the same package twice -> zero duplicates, zero extra work.
 
 ---
 
-# Tool Surface 🛠️
+# Tool surface 🛠️
 
 <style scoped>
 table { font-size: 0.8em; }
@@ -448,7 +450,7 @@ Different words, same issue. Keyword search can miss this; embeddings make it re
 
 ---
 
-# What Is an Embedding? 🧠
+# What is an embedding? 🧠
 
 Map text to a point in **high-dimensional space**. Nearby points = similar meaning.
 
@@ -464,7 +466,7 @@ You don't choose what the dimensions mean. The model learns them from billions o
 
 ---
 
-# The Classic Example 👑
+# The classic example 👑
 
 ```
 king - man + woman ≈ queen
@@ -484,7 +486,7 @@ Same meaning, completely different words. A keyword search finds nothing. A vect
 
 ---
 
-# Cosine Similarity 📐
+# Cosine similarity 📐
 
 How do we measure "how close" two vectors are?
 
@@ -509,7 +511,7 @@ In practice: 384 dimensions, not 2. But the math is the same.
 
 ---
 
-# Embeddings in Practice 🔬
+# Embeddings in practice 🔬
 
 **Model:** `BAAI/bge-small-en-v1.5` (fastembed, ONNX, runs locally, ~24MB)
 
@@ -531,7 +533,7 @@ async def semantic_search(query: str, limit: int = 5) -> str:
 
 ---
 
-# One DB to Rule Them All 🐘
+# One DB to rule them all 🐘
 
 **Previous architecture** (two side projects):
 ```
@@ -554,7 +556,7 @@ PostgreSQL + pgvector + pg_trgm
 One `DATABASE_URL`. One backup. One monitoring target. One `psql` to debug everything.
 
 ---
-### pgvector: The Numbers 📊
+### pgvector: the numbers 📊
 
 HNSW index (Hierarchical Navigable Small World graph):
 
@@ -579,7 +581,7 @@ table { font-size: 0.9em; }
 Ingest is slow because it fetches from OBS/Gitea over the network. The DB itself is fast.
 
 ---
-# Content-Addressed Dedup 🔑
+# Content-addressed dedup 🔑
 
 Same `.changes` block appears in OBS **and** the Gitea mirror -> same UUID -> no duplicate.
 
@@ -591,7 +593,7 @@ def content_uuid(package: str, content: str) -> uuid.UUID:
 ```
 
 ---
-# Content-Addressed Dedup 🔑
+# Content-addressed dedup 🔑
 
 ```sql
 INSERT INTO changelog_entries (id, package_id, content, embedding, ...)
@@ -607,7 +609,7 @@ ON CONFLICT (id) DO NOTHING;
 
 ---
 
-# Production Reality 🏭
+# Production reality 🏭
 
 **Deployment model:** local stdio per user, one shared Postgres
 
@@ -622,7 +624,7 @@ User C: uv run mcp_server.py  <-┘
 - Postgres handles concurrency; asyncpg pool per process
 
 ---
-# Production Reality 🏭
+# Production reality 🏭
 
 
 **Source failure handling:**
@@ -635,7 +637,7 @@ Stale data is better than no data. The LLM sees the banner and reports it.
 No Prometheus, no Containerfile: deliberately out of scope for this deployment model.
 
 ---
-# Security & Trust 🔒
+# Security & trust 🔒
 
 The questions a SUSE audience always asks. Honest answers:
 
@@ -643,7 +645,7 @@ The questions a SUSE audience always asks. Honest answers:
 - **Stdio = same trust as the calling user.** No privilege escalation; the server runs as you.
 
 ---
-# Security & Trust 🔒
+# Security & trust 🔒
 
 - **Untrusted source data is sanitized at ingest.** `safe_upstream_url()` in `src/ingest.py:36` rejects `file://`, `http://internal/...`, etc. before we ever fetch.
 - **No write tools in rpm-mcp.** Every tool is read-only over the cache. Worst case: the LLM gets stale data.
@@ -670,8 +672,6 @@ Query: `"TLS protocol weakness"`
 ("DTLS reassembly", "connection reuse", "HTTP/2 injection").
 The vector search found them by *meaning*.
 
-> [GIF: mcp_talk_semantic_search.gif - record with VHS/asciinema]
-
 ---
 
 # Demo: find_cve 🐛
@@ -696,11 +696,10 @@ Package: vim | Source: rpm
 Exact-match search over the cached changelogs. Sub-millisecond.
 No network call, no scraping, no paste.
 
-> [GIF: mcp_talk_find_cve.gif - record with VHS/asciinema]
 
 ---
 
-# Benchmark Numbers 📈
+# Benchmark numbers 📈
 
 Real measurements against a local Postgres with ~10 packages ingested:
 
@@ -721,7 +720,7 @@ table { font-size: 0.9em; }
 
 ---
 
-# Test Infrastructure 🧪
+# Test infrastructure 🧪
 
 **406 tests, 75% coverage**
 
@@ -745,7 +744,7 @@ PYTHONPATH=. uv run pytest -m e2e
 - Don't mock the database: mocks diverged from reality in production
 
 ---
-# Common Pitfalls When Writing Tools 🪤
+# Common pitfalls when writing tools 🪤
 
 Learned the hard way:
 
@@ -754,7 +753,7 @@ Learned the hard way:
 - **No type hints.** No schema -> LLM passes garbage -> tool crashes. Always type your parameters.
 
 ---
-# Common Pitfalls When Writing Tools 🪤
+# Common pitfalls when writing tools 🪤
 
 
 - **Returning JSON-as-string.** The LLM has to re-parse it. Return plain text formatted for human reading; the LLM handles that natively.
@@ -763,7 +762,7 @@ Learned the hard way:
 - **Docstrings as afterthought.** The docstring IS the tool's contract with the LLM. Write it like an API description.
 
 ---
-# What MCP Unlocks 🔓
+# What MCP unlocks 🔓
 
 **Before:**
 - LLM knows the world, not your infra
@@ -807,8 +806,8 @@ VISUAL doc : https://ynarwal.github.io/how-llms-work/
 # **Grazie / Thank you!**
 
 
-# LLMs Are Context-Limited
-## Giving AI the Context It Needs with the Model Context Protocol
+# LLMs are context-limited
+## Giving AI the context it needs with the Model Context Protocol
 
 # Andrea Manzini
 
