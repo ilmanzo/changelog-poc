@@ -122,6 +122,15 @@ async def seeded_db(real_db: Database):
     await real_db.upsert_changelog_entries("bare-pkg", bare_id, bare_entries, [_ZERO_VEC], "rpm")
     await real_db.touch_manifest(bare_id, kind="changelog")
 
+    # Package adding a new CLI flag, no openQA coverage (for cli_only=True)
+    cli_id = await real_db.upsert_package("cli-pkg", distro="opensuse")
+    cli_entries = [
+        ChangelogEntry(version="2.0.0", author="packager", date=datetime.now(UTC),
+                       content="- Update to 2.0.0:\n  * Add --dry-run option to preview changes\n  * Fix off-by-one in parser"),
+    ]
+    await real_db.upsert_changelog_entries("cli-pkg", cli_id, cli_entries, [_ZERO_VEC], "rpm")
+    await real_db.touch_manifest(cli_id, kind="changelog")
+
     yield real_db
 
 
@@ -354,3 +363,22 @@ async def test_find_untested_changes_openssl_excluded() -> None:
     result = await find_untested_changes(days=180, limit=20)
     # openssl has openqa tests — should not appear
     assert "openssl" not in result
+
+
+@pytest.mark.e2e
+async def test_find_untested_changes_cli_only_matches_flag_entry() -> None:
+    from src.tools.news import find_untested_changes
+    result = await find_untested_changes(days=180, limit=20, cli_only=True)
+    # cli-pkg announces "--dry-run option"
+    assert "cli-pkg" in result
+    assert "--dry-run" in result
+    # bare-pkg has a CVE entry but no CLI flag mention
+    assert "bare-pkg" not in result
+
+
+@pytest.mark.e2e
+async def test_find_untested_changes_cli_only_default_off() -> None:
+    """cli_only=False still surfaces non-CLI changes."""
+    from src.tools.news import find_untested_changes
+    result = await find_untested_changes(days=180, limit=20)
+    assert "bare-pkg" in result

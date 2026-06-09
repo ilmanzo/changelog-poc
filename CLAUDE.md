@@ -153,7 +153,7 @@ co-located with no abstract-method noise on the changelog-only registry.
 | `get_test_coverage(pkg)` | news | openQA + TestCatalog test mappings |
 | `find_bugs_in_tests(pkg)` | news | tests referencing known bug IDs |
 | `get_sync_status(pkg)` | news | ingestion manifest and staleness info |
-| `find_untested_changes(pkg, since)` | news | security fixes with no test coverage |
+| `find_untested_changes(days, limit, cli_only)` | news | packages with recent changes and no openQA/TestCatalog coverage; `cli_only=True` narrows to entries announcing new `--flags` |
 
 ## Phased build status
 

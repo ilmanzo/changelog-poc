@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
@@ -19,6 +20,22 @@ from ._helpers import _format_date
 from ._wrap import _mark_stale, _tlog, _tool_wrapper
 
 _logger = structlog.get_logger("rpm-mcp.tools.news")
+
+_CLI_LINE_RE = re.compile(
+    r"(?:new|add(?:ed|s)?|introduc(?:e|ed|es)|support(?:s|ed)?)"
+    r"[^.\n]{0,60}?"
+    r"(?:--[a-zA-Z][\w-]+|(?:command[\s-]line|cli)\s+(?:option|flag|parameter|argument|switch))",
+    re.IGNORECASE,
+)
+
+
+def _pick_cli_line(sample: str) -> str:
+    """First line in *sample* that mentions a new CLI flag; '' if none."""
+    for line in sample.splitlines():
+        stripped = line.strip()
+        if stripped and _CLI_LINE_RE.search(stripped):
+            return stripped
+    return ""
 
 
 @_tool_wrapper("get_news", untrusted_sources=("bodhi", "opensuse-rss"), category="fast")
@@ -197,21 +214,31 @@ def _append_status_block(
 
 
 @_tool_wrapper("find_untested_changes", category="fast")
-async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
+async def find_untested_changes(
+    days: int = 90,
+    limit: int = 5,
+    cli_only: bool = False,
+) -> str:
     """Find packages with recent changelog activity but no recorded test coverage.
 
     Checks both openQA (local repo scan) and TestCatalog sources.
     Useful for identifying coverage gaps after upstream bumps.
+
+    With ``cli_only=True``, narrows to entries announcing a new CLI flag /
+    option (e.g. ``--foo``) — these are high-value gaps because new surface
+    area ships untested. Each row then includes a sample excerpt.
     """
-    rows = await db.find_untested_packages(days=days, limit=limit)
-    _tlog(results=len(rows))
+    rows = await db.find_untested_packages(days=days, limit=limit, cli_only=cli_only)
+    _tlog(results=len(rows), cli_only=cli_only)
     if not rows:
+        scope = "added new CLI parameters" if cli_only else "have changelog entries"
         return (
-            f"All packages with changelog entries in the last {days} days "
+            f"All packages that {scope} in the last {days} days "
             "have at least one recorded test (openQA or TestCatalog)."
         )
+    header_scope = "new CLI parameters" if cli_only else "changes"
     lines = [
-        f"Packages with changes in the last {days}d but no test coverage"
+        f"Packages with {header_scope} in the last {days}d but no test coverage"
         f" (openQA or TestCatalog) ({len(rows)}):"
     ]
     for r in rows:
@@ -220,6 +247,10 @@ async def find_untested_changes(days: int = 90, limit: int = 5) -> str:
             f"  (latest change: {_format_date(r['latest_change'])},"
             f" {r['change_count']} entries)"
         )
+        if cli_only and r["sample"]:
+            cli_line = _pick_cli_line(r["sample"])
+            if cli_line:
+                lines.append(f"    {cli_line[:160]}")
     return "\n".join(lines)
 
 

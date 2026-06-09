@@ -692,26 +692,68 @@ class Database:
         self,
         days: int = 90,
         limit: int = 5,
+        cli_only: bool = False,
     ) -> list[asyncpg.Record]:
-        """Packages with recent changelog entries but no openqa_tests rows (any source)."""
-        async with self.pool.acquire() as conn:
-            return await conn.fetch(
-                """
-                SELECT DISTINCT p.name,
-                       MAX(ce.entry_date) AS latest_change,
-                       COUNT(ce.id)       AS change_count
-                FROM packages p
-                JOIN changelog_entries ce ON ce.package_id = p.id
-                LEFT JOIN openqa_tests t  ON t.package_id  = p.id
-                WHERE t.id IS NULL
-                  AND ce.entry_date >= now() - make_interval(days => $1)
-                GROUP BY p.name
-                ORDER BY latest_change DESC
-                LIMIT $2
-                """,
-                days,
-                limit,
+        """Packages with recent changelog entries but no openqa_tests rows.
+
+        With ``cli_only=True``, restrict to entries that announce a new CLI
+        flag or option (tsvector prefilter + regex confirmation: action verb
+        must precede ``--flag`` or an ``option|flag|parameter|argument|switch``
+        keyword). Result rows include a ``sample`` excerpt in that mode.
+        """
+        cli_regex = (
+            r"(?:^|[[:space:]])"
+            r"(?:new|add(?:ed|s)?|introduc(?:e|ed|es)|support(?:s|ed)?)"
+            r"[[:space:]][^.\n]{0,60}?"
+            r"(?:--[a-zA-Z][a-zA-Z0-9_-]+"
+            r"|(?:command[[:space:]-]line|cli)[[:space:]](?:option|flag|parameter|argument|switch)"
+            r"|(?:option|flag|parameter|argument|switch)[[:space:]]+\"?--[a-zA-Z])"
+        )
+        cli_filter = (
+            """
+                  AND ce.tsv @@ to_tsquery(
+                      'english',
+                      '(new | add | introduc:* | support:*) & '
+                      '(option | flag | parameter | argument | switch)'
+                  )
+                  AND ce.content ~* $3
+            """
+            if cli_only
+            else ""
+        )
+        sample_select = (
+            ", (array_agg(ce.content ORDER BY ce.entry_date DESC))[1] AS sample"
+            if cli_only
+            else ", NULL::text AS sample"
+        )
+        sql = f"""
+            WITH hits AS (
+                SELECT ce.package_id,
+                       MAX(ce.entry_date)            AS latest_change,
+                       COUNT(*)                      AS change_count
+                       {sample_select}
+                FROM changelog_entries ce
+                WHERE ce.entry_date >= now() - make_interval(days => $1)
+                {cli_filter}
+                GROUP BY ce.package_id
             )
+            SELECT p.name,
+                   p.distro,
+                   h.latest_change,
+                   h.change_count,
+                   h.sample
+            FROM hits h
+            JOIN packages p ON p.id = h.package_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM openqa_tests t WHERE t.package_id = p.id
+            )
+            ORDER BY h.latest_change DESC
+            LIMIT $2
+            """
+        async with self.pool.acquire() as conn:
+            if cli_only:
+                return await conn.fetch(sql, days, limit, cli_regex)
+            return await conn.fetch(sql, days, limit)
 
     async def compare_versions(self, package: str) -> list[asyncpg.Record]:
         """Latest changelog version per distro for *package*."""
