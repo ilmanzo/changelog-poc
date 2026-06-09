@@ -38,6 +38,7 @@ infra/pg_data/
 
 # Claude Code workspace state (private memory + local settings)
 .claude/
+.gemini/
 
 # Ad-hoc scripts dropped by agentic clients (gemini, claude) during demos
 /*.py

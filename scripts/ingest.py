@@ -73,7 +73,7 @@ async def _run(packages: list[str], concurrency: int) -> list[IngestResult]:
         sources=[RpmSource(rpm_mgr), ObsSource(), GiteaSource()],
         strategy=FetchStrategy(settings.fetch_strategy),
     )
-    service = IngestService(registry, db)
+    service = IngestService(registry, db, rpm_mgr=rpm_mgr)
     sem = asyncio.Semaphore(concurrency)
 
     async def _one(pkg: str) -> IngestResult:

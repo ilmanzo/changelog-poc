@@ -37,7 +37,7 @@ source_registry = SourceRegistry(
     sources=[RpmSource(rpm_mgr), ObsSource(), GiteaSource(), FedoraSource(), UbuntuSource()],
     strategy=FetchStrategy(settings.fetch_strategy),
 )
-ingest_service = IngestService(source_registry, db)
+ingest_service = IngestService(source_registry, db, rpm_mgr=rpm_mgr)
 
 
 @asynccontextmanager

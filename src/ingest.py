@@ -20,6 +20,7 @@ import structlog
 from . import embedder
 from .db import Database
 from .errors import ValidationError
+from .rpm_manager import RPMManager
 from .sources import SourceRegistry
 from .sources.base import SourceError, SourceNotFound
 from .sources.url_router import parse_upstream_url
@@ -83,10 +84,12 @@ class IngestService:
         self,
         source_registry: SourceRegistry,
         db: Database,
+        rpm_mgr: RPMManager | None = None,
         logger_name: str = "rpm-mcp.ingest",
     ) -> None:
         self._sources = source_registry
         self._db = db
+        self._rpm_mgr = rpm_mgr
         self._log = structlog.get_logger(logger_name)
         self._pending: dict[tuple[str, str], asyncio.Task[IngestResult]] = {}
 
@@ -231,6 +234,8 @@ class IngestService:
         )
         await self._db.touch_manifest(package_id, kind="changelog")
 
+        await self._populate_deps(package, package_id, effective_distro, log)
+
         upstream_extra = await self._enrich_upstream(
             package,
             package_id,
@@ -254,6 +259,28 @@ class IngestService:
             source=result.source_name,
             elapsed_s=elapsed,
         )
+
+    async def _populate_deps(
+        self,
+        package: str,
+        package_id: int,
+        distro: str,
+        log: structlog.stdlib.BoundLogger,
+    ) -> None:
+        """Best-effort: refresh `deps` table from the local rpmdb.
+
+        No-op when the rpm manager is absent or the package is not installed
+        locally (`rpm -qR` failure). Local-only because `rpm -qR` queries the
+        host rpmdb.
+        """
+        if self._rpm_mgr is None or distro != "opensuse":
+            return
+        try:
+            deps = await self._rpm_mgr.get_dependencies(package)
+        except RuntimeError:
+            return
+        await self._db.replace_deps(package_id, deps, kind="requires")
+        log.debug("deps_populated", count=len(deps))
 
     async def _enrich_upstream(
         self,

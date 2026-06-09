@@ -305,7 +305,7 @@ Plus hundreds of community servers in the [MCP registry](https://github.com/mode
 
 # Our project: origin story 🔧
 
-**Pain:** Claude couldn't answer questions about openSUSE package history.
+**Pain:** Claude/Gemini couldn't answer questions about [open]SUSE package history.
 
 **Experiment:** How hard is it to build an MCP server that gives it access?
 
@@ -781,6 +781,7 @@ Learned the hard way:
 4. Iterate
 
 The protocol is stable. The tooling is production-ready.
+
 
 ---
 

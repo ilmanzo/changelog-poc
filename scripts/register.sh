@@ -63,6 +63,8 @@ gemini_add() {
     mkdir -p "$(dirname "${GEMINI_SETTINGS}")"
     [ -f "${GEMINI_SETTINGS}" ] || echo '{}' > "${GEMINI_SETTINGS}"
     cp "${GEMINI_SETTINGS}" "${GEMINI_SETTINGS}.bak.$(date +%s)"
+    # Keep only the 3 most recent backups
+    ls -1t "${GEMINI_SETTINGS}".bak.* 2>/dev/null | tail -n +4 | xargs -r rm --
 
     jq --arg name "${SERVER_NAME}" \
        --arg cwd "${REPO_DIR}" \
