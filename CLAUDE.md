@@ -175,6 +175,13 @@ co-located with no abstract-method noise on the changelog-only registry.
 # DB integration tests (requires podman socket)
 ./scripts/test.sh e2e-db
 
+# OpenCode e2e tests (requires SUSE VPN + podman + opencode binary)
+./scripts/test.sh e2e-opencode
+
+# Edge-case prompts only (subset of e2e-opencode)
+./scripts/test.sh e2e-edge                       # all edge_* cases
+./scripts/test.sh e2e-edge bash_bypass           # filter by substring
+
 # All tests
 ./scripts/test.sh all
 ```
@@ -186,6 +193,11 @@ Podman notes:
 
 E2E tests via gemini-cli: `tests/test_e2e_gemini.py` — testcontainers Postgres + real openSUSE packages (vim, CVE-2023-4738)
 - Settings patched in `~/.gemini/settings.json` during test session, restored on teardown
+
+E2E tests via opencode: `tests/test_e2e_opencode.py` — testcontainers Postgres + SUSE Ollama endpoint.
+- `PROBE_CASES`: direct tool invocation prompts (explicit MCP server name in prompt).
+- `EDGE_CASES`: natural-language prompts that risk bypassing the MCP server (webfetch, bash, training-data traps). Uses `AllOf()` wrapper for multi-tool chain assertions.
+- Auto-skips when the SUSE internal Ollama endpoint is unreachable (no VPN = skip, not fail).
 
 ## Production design decisions
 
